@@ -1224,7 +1224,8 @@ function renderAlu(){
     const ref = mesRef(hoje()), cs = cobrancasMes(a, ref), st = cs.find(x => x.st !== 'pago') || cs[cs.length - 1] || (a.venc ? cobrancasMes(a, mesSeg(ref))[0] : null) || null, hist = pags.filter(x => x.aluno === a.id).sort((x, y) => y.ref.localeCompare(x.ref)).slice(0, 6);
     h += `<div class="card" style="margin-top:12px"><h2>${st ? rotuloRef(st) : 'Mensalidade de ' + nomeMes(ref).split(' ')[0].toLowerCase()}</h2><div style="font-size:26px;font-weight:700">${brl(st ? st.valor : valorAluno(a))}</div>${st && st.obs ? `<div class="hint" style="margin:2px 0 0">${esc(st.obs)}</div>` : ''}
       <div style="margin:4px 0 8px">${!st ? '<span class="tag mut">vencimento a definir</span>' : st.st === 'pago' ? `<span class="tag ok">Pago em ${fmtD(st.p.pagoEm)}</span>` : st.st === 'atraso' ? `<span class="tag bad">Venceu em ${fmtD(st.venc)}</span>` : st.st === 'hoje' ? '<span class="tag warn">Vence hoje</span>' : `<span class="tag mut">Vence em ${fmtD(st.venc)}</span>`}</div>
-      ${cfg.pix ? `<div class="hint" style="margin:0 0 6px">Pague pelo Pix:</div><div class="row"><input value="${esc(cfg.pix)}" readonly style="flex:1"><button class="btn small" id="aluPix">Copiar</button></div>` : '<p class="hint">A chave Pix aparece aqui quando o estúdio cadastrar em Ajustes.</p>'}</div>
+      ${cfg.pix ? `<div class="hint" style="margin:0 0 6px">Pague pelo Pix:</div><div class="row"><input value="${esc(cfg.pix)}" readonly style="flex:1"><button class="btn small" id="aluPix">Copiar</button></div>` : '<p class="hint">A chave Pix aparece aqui quando o estúdio cadastrar em Ajustes.</p>'}
+      ${st && st.st !== 'pago' && cfg.whats ? `<a class="btn wa block" id="aluComp" style="margin-top:10px" target="_blank" rel="noopener" href="${waLink(cfg.whats, msgComprovante(a, st))}">📎 Já paguei: enviar comprovante</a><p class="hint" style="margin:6px 0 0;text-align:center">Abre o WhatsApp do estúdio. Anexe o print do comprovante na conversa.</p>` : ''}</div>
       <div class="sec" style="font-size:14px;font-weight:700;margin:4px 2px 8px">Histórico</div>` + (hist.length ? hist.map(x => `<div class="aula"><div><div class="q">${nomeMes(x.ref)}</div><div class="s">Pago em ${fmtD(x.pagoEm)} · ${x.forma}</div></div><b>${brl(x.valor)}</b></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>');
     m.innerHTML = h;
     if ($('aluPix')) $('aluPix').onclick = () => { try { navigator.clipboard.writeText(cfg.pix); toast('Chave Pix copiada'); } catch(e){ toast('Copie a chave manualmente'); } };
@@ -1687,6 +1688,12 @@ async function testarPush(){
   toast(data ? '🔔 Teste enviado! Deve chegar em alguns segundos' : 'Nenhum aparelho ativado ainda');
 }
 $('pushAtivar').onclick = ativarPush; $('pushDesativar').onclick = desativarPush; $('pushTeste').onclick = testarPush;
+
+// mensagem pronta do botão "Já paguei: enviar comprovante" (área da aluna)
+function msgComprovante(a, st){
+  const qual = ehProp(st.ref || '') ? 'primeira mensalidade' : 'mensalidade de ' + nomeMes((st.ref || mesRef(hoje())).slice(0, 7)).split(' ')[0].toLowerCase();
+  return `Oi! Aqui é a ${pnome(a)} 😊\nPaguei a ${qual} (${brl(st.valor != null ? st.valor : valorAluno(a))}) pelo Pix.\nSegue o comprovante 👇`;
+}
 
 // ================= PORTAL DA ALUNA (link pessoal ?a=CODIGO) =================
 // A aluna não tem login: o código secreto do link é a "chave do armarinho" dela.
