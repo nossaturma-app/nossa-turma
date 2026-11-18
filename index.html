@@ -270,6 +270,11 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
     <button class="link" id="cfAddPlano">+ Incluir plano</button>
   </div>
   <div class="card">
+    <h2>Primeira mensalidade</h2>
+    <p class="hint">Quando o aluno começa num dia diferente do vencimento. Vale para alunos novos (dá para trocar no cadastro de cada um).</p>
+    <div id="cfPrim" style="display:grid;gap:8px"></div>
+  </div>
+  <div class="card">
     <h2>Regras de reposição</h2>
     <div class="grid">
       <div><label>Máx. de reposições por mês</label><input id="rgMax" type="number" inputmode="numeric"></div>
@@ -314,6 +319,7 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
       <div class="hint" id="maValHint" style="margin:6px 0 0"></div></div>
     <div><label>Data de início</label><input id="maIni" type="date"></div>
     <div><label>Encerramento (se saiu)</label><input id="maFim" type="date"></div>
+    <div class="full"><label>Primeira mensalidade</label><select id="maPrim"></select><div class="hint" id="maPrimHint" style="margin:6px 0 0"></div></div>
     <div class="full"><label>Horários fixos <span id="maQtd"></span></label><div id="maSlots" class="slotpick hgrid"></div></div>
     <div class="full"><label>Observações (restrições, dores…)</label><input id="maObs"></div>
     <div class="full"><label class="check"><input type="checkbox" id="maAtivo" checked> Aluno ativo</label></div>
@@ -377,7 +383,7 @@ const store = {
   get(k, d){ try { const v = localStorage.getItem('vgp_'+k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
   set(k, v){ try { localStorage.setItem('vgp_'+k, JSON.stringify(v)); return true; } catch(e){ return false; } }
 };
-const CFG0 = () => ({estudio:'Meu estúdio', admin:'', pix:'', vagas:6, dias:[1,2,3,4,5],
+const CFG0 = () => ({estudio:'Meu estúdio', admin:'', pix:'', vagas:6, primeira:'cheio', dias:[1,2,3,4,5],
   horas:['07:00','08:00','09:00','10:00','14:00','15:00','16:00','17:00','18:00','19:00'],
   planos:[{id:'p1', n:'1x por semana', aulas:1, valor:110},{id:'p2', n:'2x por semana', aulas:2, valor:190},{id:'p3', n:'3x por semana', aulas:3, valor:280}],
   regra:{max:2, ant:4, manha:'12:00', vesp:'18:00', admIni:'07:00', admFim:'19:00'}, demo:false});
@@ -495,19 +501,56 @@ const todosCreditos = () => eventos.filter(e => e.tipo === 'falta' && e.direito 
 
 // ================= FINANCEIRO: REGRAS =================
 function vencNoMes(a, ref){ const [y,m] = ref.split('-').map(Number); const ult = new Date(y, m, 0).getDate(); return `${ref}-${String(Math.min(a.venc, ult)).padStart(2,'0')}`; }
-function statusMens(a, ref){
-  if (a.fim && ref > a.fim.slice(0, 7)) return null;
-  if (!a.venc) return null;
-  if ((a.inicio || "").slice(0,7) > ref) return null;
-  const p = pags.find(x => x.aluno === a.id && x.ref === ref), venc = vencNoMes(a, ref);
-  if (p) return {st:'pago', p, venc};
-  const d = dias(venc);
-  return {st: d < 0 ? 'atraso' : d === 0 ? 'hoje' : 'aberto', venc, d};
+// ----- primeira mensalidade (quando começa em dia diferente do vencimento) -----
+const MODOS_PRIM = {
+  cheio:   {n: 'Sem proporcional', d: 'Paga o mês cheio a partir do primeiro vencimento.'},
+  entrada: {n: 'Proporcional na entrada', d: 'Paga os dias até o 1º vencimento no dia em que começa. Depois, o valor cheio no vencimento.'},
+  junto:   {n: 'Proporcional junto com o 1º vencimento', d: 'Os dias até o 1º vencimento são somados à primeira mensalidade.'}
+};
+const mesSeg = ref => { const [y, m] = ref.split('-').map(Number); return mesRef(new Date(y, m, 1)); };
+const r2 = v => Math.round(v * 100) / 100;
+function infoPrim(a, modo){
+  if (!a || !a.inicio || !a.venc) return null;
+  modo = modo || a.prim || 'cheio';
+  const I = a.inicio, refI = I.slice(0, 7);
+  let F = vencNoMes(a, refI); if (F < I) F = vencNoMes(a, mesSeg(refI));
+  const d = Math.round((fromISO(F) - fromISO(I)) / 864e5);
+  return {modo: d > 0 ? modo : 'cheio', I, refI, F, d, valor: d > 0 ? r2(valorAluno(a) / 30 * d) : 0};
 }
+const ehProp = ref => /-p$/.test(ref);
+function exemploPrim(k){ // exemplo com R$ 190, começa dia 17 e vence dia 10 (23 dias)
+  const pv = r2(190 / 30 * 23);
+  return k === 'cheio' ? 'Ex.: começa 17/11, vence dia 10 → paga R$ 190,00 em 10/12.'
+    : k === 'entrada' ? `Ex.: começa 17/11, vence dia 10 → paga ${brl(pv)} em 17/11 e R$ 190,00 em 10/12.`
+    : `Ex.: começa 17/11, vence dia 10 → paga ${brl(r2(190 + pv))} em 10/12.`;
+}
+function statusMens(a, ref){
+  const base = ref.slice(0, 7);
+  if (a.fim && base > a.fim.slice(0, 7)) return null;
+  if (!a.venc) return null;
+  if ((a.inicio || "").slice(0,7) > base) return null;
+  const p = pags.find(x => x.aluno === a.id && x.ref === ref);
+  let venc, valor = valorAluno(a), obs = '';
+  if (ehProp(ref)) { // cobrança proporcional separada, no dia da entrada
+    const f = infoPrim(a); if (!f || f.modo !== 'entrada' || base !== f.refI) return null;
+    venc = f.I; valor = f.valor; obs = `1ª mensalidade · ${f.d} dia${f.d > 1 ? 's' : ''} proporciona${f.d > 1 ? 'is' : 'l'}`;
+  } else {
+    venc = vencNoMes(a, ref);
+    // 1º mês: vencimento antes da data de início não é cobrado (a primeira mensalidade vem depois)
+    if (!p && a.inicio && ref === a.inicio.slice(0, 7) && venc < a.inicio) return null;
+    const f = infoPrim(a);
+    if (f && f.modo === 'junto' && ref === f.F.slice(0, 7)) { valor = r2(valor + f.valor); obs = `inclui ${f.d} dia${f.d > 1 ? 's' : ''} proporciona${f.d > 1 ? 'is' : 'l'} (${brl(f.valor)})`; }
+  }
+  if (p) return {st:'pago', p, venc, valor: p.valor, obs};
+  const d = dias(venc);
+  return {st: d < 0 ? 'atraso' : d === 0 ? 'hoje' : 'aberto', venc, d, valor, obs};
+}
+const cobrancasMes = (a, ref) => [ref + '-p', ref].map(r => { const s = statusMens(a, r); return s ? Object.assign({ref: r}, s) : null; }).filter(Boolean);
+const rotuloRef = x => ehProp(x.ref) ? 'Primeira mensalidade (proporcional)' : 'Mensalidade de ' + nomeMes(x.ref).split(' ')[0].toLowerCase();
 function pendencias(a){ // mensalidades vencidas ou vencendo hoje (últimos 3 meses)
   const out = [], hj = hoje();
-  for (let k = 2; k >= 0; k--) { const ref = mesRef(new Date(hj.getFullYear(), hj.getMonth() - k, 1)); const s = statusMens(a, ref);
-    if (s && (s.st === 'atraso' || s.st === 'hoje')) out.push(Object.assign({ref}, s)); }
+  for (let k = 2; k >= 0; k--) { const ref = mesRef(new Date(hj.getFullYear(), hj.getMonth() - k, 1));
+    cobrancasMes(a, ref).forEach(s => { if (s.st === 'atraso' || s.st === 'hoje') out.push(s); }); }
   return out;
 }
 
@@ -517,10 +560,11 @@ function msgCobranca(a, pend){
   let t = `Oi, ${pnome(a)}! Tudo bem? 😊\n`;
   if (pend.length === 1) {
     const x = pend[0];
-    t += x.st === 'hoje' ? `Passando para lembrar que *hoje* vence sua mensalidade do Pilates (${p.n}) no valor de *${brl(valorAluno(a))}*.`
-      : `Passando para lembrar que sua mensalidade do Pilates de ${nomeMes(x.ref).split(' ')[0].toLowerCase()} (${p.n}), no valor de *${brl(valorAluno(a))}*, venceu em ${fmtD(x.venc)}.`;
+    const v = x.valor != null ? x.valor : valorAluno(a), qual = ehProp(x.ref) ? `primeira mensalidade (proporcional, ${p.n})` : null;
+    t += x.st === 'hoje' ? `Passando para lembrar que *hoje* vence sua ${qual || `mensalidade do Pilates (${p.n})`} no valor de *${brl(v)}*.`
+      : `Passando para lembrar que sua ${qual || `mensalidade do Pilates de ${nomeMes(x.ref).split(' ')[0].toLowerCase()} (${p.n})`}, no valor de *${brl(v)}*, venceu em ${fmtD(x.venc)}.`;
   } else {
-    t += `Passando para lembrar das mensalidades do Pilates em aberto:\n` + pend.map(x => `▪️ ${nomeMes(x.ref)} — venc. ${fmtD(x.venc)} — ${brl(valorAluno(a))}`).join('\n') + `\n*Total: ${brl(valorAluno(a) * pend.length)}*`;
+    t += `Passando para lembrar das mensalidades do Pilates em aberto:\n` + pend.map(x => `▪️ ${ehProp(x.ref) ? '1ª mensalidade (proporcional)' : nomeMes(x.ref)} — venc. ${fmtD(x.venc)} — ${brl(x.valor != null ? x.valor : valorAluno(a))}`).join('\n') + `\n*Total: ${brl(pend.reduce((t, x) => t + (x.valor != null ? x.valor : valorAluno(a)), 0))}*`;
   }
   if (cfg.pix) t += `\n\nPix: *${cfg.pix}*`;
   return t + `\n\nQualquer dúvida, é só chamar. Obrigada! 💕\n${assin()}`;
@@ -528,7 +572,7 @@ function msgCobranca(a, pend){
 const msgLembrete = (a, data, hs) => `Oi, ${pnome(a)}! 😊\nLembrete: sua aula de Pilates é ${dias(data) === 1 ? '*amanhã*' : dias(data) === 0 ? '*hoje*' : 'na ' + DIASL[fromISO(data).getDay()]} (${fmtDia(data)}) às *${hs.map(hCurta).join(' e ')}*.\n\nSe precisar faltar, avise com antecedência para ter direito à reposição. Até lá! 💪\n${assin()}`;
 const msgRepo = (a, f, r) => `Oi, ${pnome(a)}! 😊\nSua reposição está confirmada ✅\n\n❌ Falta: ${fmtDia(f.data)} às ${hCurta(f.h)}\n✅ Reposição: *${fmtDia(r.data)} às ${hCurta(r.h)}*\n\nVocê usou ${usadasNoMes(a.id, f.data)} de ${cfg.regra.max} reposições de ${nomeMes(f.data.slice(0,7)).split(' ')[0].toLowerCase()} (elas valem só dentro do mês). Até lá! 💪\n${assin()}`;
 const msgSemDireito = (a, f, motivo) => `Oi, ${pnome(a)}! Tudo bem?\nRegistramos sua falta na aula de ${fmtDia(f.data)} às ${hCurta(f.h)}.\nInfelizmente essa falta não dá direito a reposição: ${motivo.replace(/\.$/, '').toLowerCase()}.\n\nQualquer dúvida, estou à disposição. 💕\n${assin()}`;
-const msgRecibo = (a, p) => `Oi, ${pnome(a)}! Recebemos o pagamento da sua mensalidade de ${nomeMes(p.ref).toLowerCase()} (${brl(p.valor)}) ✅\nObrigada! 💕\n${assin()}`;
+const msgRecibo = (a, p) => `Oi, ${pnome(a)}! Recebemos o pagamento da sua ${ehProp(p.ref) ? 'primeira mensalidade (proporcional)' : 'mensalidade de ' + nomeMes(p.ref).split(' ')[0].toLowerCase()} (${brl(p.valor)}) ✅\nObrigada! 💕\n${assin()}`;
 
 // ================= NAVEGAÇÃO =================
 function irPara(v){
@@ -886,7 +930,7 @@ function renderAlunos(){
   lista.forEach(a => {
     const pend = pendencias(a), cr = creditos(a.id).length, d = document.createElement('div'); d.className = 'item'; d.style.cursor = 'pointer';
     d.innerHTML = `<div><div class="nm">${esc(a.nome)}</div><div class="sub">${plano(a.plano).n} · ${brl(valorAluno(a))} · ${slotsTxt(a) || 'sem horário'}</div>
-      <div style="margin-top:3px">${!a.venc ? '' : pend.some(p => p.st === 'atraso') ? '<span class="tag bad">Atrasada</span> ' : pend.length ? '<span class="tag warn">Vence hoje</span> ' : '<span class="tag ok">Em dia</span> '}${cr ? `<span class="tag blue">${cr} reposição</span> ` : ''}${especial(a) ? '<span class="tag mut">valor especial</span> ' : ''}${a.conferir ? '<span class="tag warn">completar</span> ' : ''}${(a.docs || []).length ? `<span class="tag blue">📎 ${a.docs.length}</span> ` : ''}${!a.conferir && dias(a.inicio) > -31 ? `<span class="tag blue">novo · desde ${fmtD(a.inicio)}</span> ` : ''}${a.fim ? `<span class="tag mut">${a.fim < toISO(hoje()) ? 'saiu' : 'sai'} em ${fmtD(a.fim)}</span> ` : ''}${a.duv ? '<span class="tag warn">conferir nome</span>' : ''}</div></div><span class="sub">›</span>`;
+      <div style="margin-top:3px">${!a.venc ? '' : pend.some(p => p.st === 'atraso') ? '<span class="tag bad">Atrasada</span> ' : pend.length ? '<span class="tag warn">Vence hoje</span> ' : '<span class="tag ok">Em dia</span> '}${cr ? `<span class="tag blue">${cr} reposição</span> ` : ''}${especial(a) ? '<span class="tag mut">valor especial</span> ' : ''}${a.conferir ? '<span class="tag warn">completar</span> ' : ''}${(a.docs || []).length ? `<span class="tag blue" style="font-size:13px">📎 ${a.docs.length} ${a.docs.length > 1 ? 'documentos' : 'documento'}</span> ` : ''}${!a.conferir && dias(a.inicio) > -31 ? `<span class="tag blue">novo · desde ${fmtD(a.inicio)}</span> ` : ''}${a.fim ? `<span class="tag mut">${a.fim < toISO(hoje()) ? 'saiu' : 'sai'} em ${fmtD(a.fim)}</span> ` : ''}${a.duv ? '<span class="tag warn">conferir nome</span>' : ''}</div></div><span class="sub">›</span>`;
     d.onclick = () => abrirAluno(a); $('alLista').appendChild(d);
   });
 }
@@ -907,8 +951,8 @@ function abrirAluno(a){
   $('maTit').textContent = a ? a.nome : 'Novo aluno';
   $('maPlano').innerHTML = cfg.planos.map(p => `<option value="${p.id}">${esc(p.n)} — tabela ${brl(p.valor)}</option>`).join('');
   $('maNome').value = a ? a.nome : ''; $('maTel').value = a ? a.tel : ''; $('maPlano').value = a ? a.plano : (cfg.planos[1] || cfg.planos[0]).id;
-  $('maVenc').value = a ? (a.venc || '') : hoje().getDate(); $('maValor').value = a ? valorAluno(a) : plano($('maPlano').value).valor; planoAnt = $('maPlano').value; valHint(); $('maFim').value = a && a.fim ? a.fim : ''; $('maIni').value = a ? a.inicio : toISO(hoje()); $('maObs').value = a ? a.obs : ''; $('maAtivo').checked = a ? a.ativo : true;
-  renderSlotsAluno();
+  $('maVenc').value = a ? (a.venc || '') : hoje().getDate(); $('maValor').value = a ? valorAluno(a) : plano($('maPlano').value).valor; planoAnt = $('maPlano').value; valHint(); $('maFim').value = a && a.fim ? a.fim : ''; $('maPrim').innerHTML = Object.entries(MODOS_PRIM).map(([k, m]) => `<option value="${k}">${m.n}</option>`).join(''); $('maPrim').value = a ? (a.prim || 'cheio') : (cfg.primeira || 'cheio'); $('maIni').value = a ? a.inicio : toISO(hoje()); $('maObs').value = a ? a.obs : ''; $('maAtivo').checked = a ? a.ativo : true;
+  renderSlotsAluno(); primHint();
   if (a) {
     const ref = mesRef(hoje()), usadas = usadasNoMes(a.id, toISO(hoje())), cr = creditos(a.id);
     const ult = pags.filter(p => p.aluno === a.id).sort((x, y) => y.ref.localeCompare(x.ref)).slice(0, 4);
@@ -928,6 +972,18 @@ function abrirAluno(a){
   $('mAluno').classList.add('on');
 }
 let planoAnt = null;
+function primHint(){
+  const venc = Math.round(num($('maVenc').value)), ini = $('maIni').value;
+  const t = {inicio: ini, venc: venc >= 1 && venc <= 31 ? venc : null, valor: num($('maValor').value), plano: $('maPlano').value};
+  const f = infoPrim(t, $('maPrim').value), h = $('maPrimHint');
+  if (!f) return h.innerHTML = 'Preencha o dia do vencimento e a data de início.';
+  if (f.d <= 0) return h.innerHTML = `Começa no dia do vencimento: primeira mensalidade de ${brl(valorAluno(t))} em ${fmtD(f.F)}.`;
+  const prox = vencNoMes(t, mesSeg(f.F.slice(0, 7)));
+  h.innerHTML = f.modo === 'entrada' ? `💡 Paga <b>${brl(f.valor)}</b> (${f.d} dias) em ${fmtD(f.I)} e <b>${brl(valorAluno(t))}</b> em ${fmtD(f.F)}.`
+    : f.modo === 'junto' ? `💡 Paga <b>${brl(r2(valorAluno(t) + f.valor))}</b> em ${fmtD(f.F)} (${brl(valorAluno(t))} + ${f.d} dias). Depois, ${brl(valorAluno(t))} a partir de ${fmtD(prox)}.`
+    : `💡 Sem proporcional: primeira mensalidade de <b>${brl(valorAluno(t))}</b> em ${fmtD(f.F)}.`;
+}
+['maVenc', 'maIni', 'maValor'].forEach(id => { $(id).addEventListener('input', primHint); $(id).addEventListener('change', primHint); }); $('maPrim').onchange = primHint;
 function valHint(){
   const t = plano($('maPlano').value).valor, v = num($('maValor').value);
   $('maValHint').innerHTML = !v ? `Tabela atual: ${brl(t)}` : v === t ? `Valor da tabela atual (${brl(t)}).` :
@@ -937,14 +993,14 @@ $('maValor').oninput = valHint;
 $('maPlano').onchange = () => {
   // se estava no valor da tabela do plano anterior, acompanha o novo plano; se era especial, mantém
   if (!num($('maValor').value) || num($('maValor').value) === plano(planoAnt).valor) $('maValor').value = plano($('maPlano').value).valor;
-  planoAnt = $('maPlano').value; valHint(); renderSlotsAluno();
+  planoAnt = $('maPlano').value; valHint(); renderSlotsAluno(); primHint();
 };
 $('btnNovoAluno').onclick = () => abrirAluno(null);
 $('maCancel').onclick = () => fechar('mAluno');
 $('maOk').onclick = () => {
   const nome = $('maNome').value.trim(); if (!nome) return toast('Coloque o nome do aluno');
   const venc = $('maVenc').value === '' ? null : Math.round(num($('maVenc').value)); if (venc !== null && (venc < 1 || venc > 31)) return toast('Dia do vencimento entre 1 e 31');
-  const d = {nome, tel: $('maTel').value.replace(/\D/g, ''), plano: $('maPlano').value, valor: num($('maValor').value) || plano($('maPlano').value).valor, venc, conferir: !venc, duv: false, inicio: $('maIni').value || toISO(hoje()), slots: alSlots.slice(), obs: $('maObs').value.trim(), ativo: $('maAtivo').checked, fim: $('maFim').value || null};
+  const d = {nome, tel: $('maTel').value.replace(/\D/g, ''), plano: $('maPlano').value, valor: num($('maValor').value) || plano($('maPlano').value).valor, venc, conferir: !venc, duv: false, inicio: $('maIni').value || toISO(hoje()), slots: alSlots.slice(), prim: $('maPrim').value, obs: $('maObs').value.trim(), ativo: $('maAtivo').checked, fim: $('maFim').value || null};
   if (d.fim && d.fim < toISO(hoje())) d.ativo = false;
   if (d.fim && d.fim >= toISO(hoje())) d.ativo = true;
   if (alEdit) Object.assign(alEdit, d); else alunos.push(Object.assign({id: uid()}, d));
@@ -957,10 +1013,10 @@ function renderFin(){
   $('fLabel').textContent = nomeMes(fRef);
   $('fNext').disabled = fRef >= mesRef(hoje());
   document.querySelectorAll('#fFiltro .chip').forEach(c => c.classList.toggle('on', c.dataset.f === fFiltro));
-  const linhas = alunos.filter(a => a.ativo || pags.some(p => p.aluno === a.id && p.ref === fRef)).map(a => ({a, s: statusMens(a, fRef)})).filter(x => x.s);
-  const prev = linhas.reduce((s, x) => s + (x.s.p ? x.s.p.valor : valorAluno(x.a)), 0);
-  const rec = linhas.filter(x => x.s.st === 'pago').reduce((s, x) => s + x.s.p.valor, 0);
-  const atr = linhas.filter(x => x.s.st === 'atraso').reduce((s, x) => s + valorAluno(x.a), 0);
+  const linhas = alunos.filter(a => a.ativo || pags.some(p => p.aluno === a.id && p.ref.slice(0, 7) === fRef)).flatMap(a => cobrancasMes(a, fRef).map(s => ({a, s, ref: s.ref})));
+  const prev = linhas.reduce((t, x) => t + x.s.valor, 0);
+  const rec = linhas.filter(x => x.s.st === 'pago').reduce((t, x) => t + x.s.p.valor, 0);
+  const atr = linhas.filter(x => x.s.st === 'atraso').reduce((t, x) => t + x.s.valor, 0);
   $('fReceb').textContent = brl(rec); $('fPrev2').textContent = brl(prev); $('fAberto').textContent = brl(prev - rec); $('fAtraso').textContent = brl(atr);
   $('fBar').style.width = (prev ? rec / prev * 100 : 0) + '%';
   renderInicioAviso();
@@ -968,15 +1024,15 @@ function renderFin(){
   const lista = linhas.filter(x => fFiltro === 'todos' || (fFiltro === 'aberto' ? x.s.st !== 'pago' : fFiltro === 'atraso' ? x.s.st === 'atraso' : x.s.st === 'pago'))
     .sort((x, y) => ORD[x.s.st] - ORD[y.s.st] || x.s.venc.localeCompare(y.s.venc));
   $('fLista').innerHTML = lista.length ? '' : '<div class="empty">Nada nesta lista. 👍</div>';
-  lista.forEach(({a, s}) => {
+  lista.forEach(({a, s, ref}) => {
     const d = document.createElement('div'); d.className = 'item';
     const tag = s.st === 'pago' ? `<span class="tag ok">Pago ${fmtD(s.p.pagoEm)} · ${s.p.forma}</span>` : s.st === 'atraso' ? `<span class="tag bad">Venceu ${fmtD(s.venc)}</span>` : s.st === 'hoje' ? '<span class="tag warn">Vence hoje</span>' : `<span class="tag mut">Vence ${fmtD(s.venc)}</span>`;
-    d.innerHTML = `<div><div class="nm">${esc(a.nome)}</div><div class="sub">${brl(s.p ? s.p.valor : valorAluno(a))} · ${plano(a.plano).n}</div><div style="margin-top:3px">${tag}</div></div>
+    d.innerHTML = `<div><div class="nm">${esc(a.nome)}</div><div class="sub">${brl(s.valor)} · ${plano(a.plano).n}</div>${s.obs ? `<div class="sub" style="color:var(--blue)">${esc(s.obs)}</div>` : ''}<div style="margin-top:3px">${tag}</div></div>
       <div class="row">${s.st === 'pago' ? '<button class="btn small" data-x>Desfazer</button>' : `${s.st !== 'aberto' ? '<a class="btn wa small" target="_blank" rel="noopener" data-c>Cobrar</a>' : ''}<button class="btn small primary" data-r>Recebi</button>`}</div>`;
     const r = d.querySelector('[data-r]'), x = d.querySelector('[data-x]'), c = d.querySelector('[data-c]');
-    if (r) r.onclick = () => abrirPagamento(a, fRef);
+    if (r) r.onclick = () => abrirPagamento(a, ref, s);
     if (x) x.onclick = () => { pags = pags.filter(p => p.id !== s.p.id); salvar(); renderFin(); toast('Pagamento desfeito'); };
-    if (c) { const pend = pendencias(a).filter(p => p.ref <= fRef); c.href = waLink(a.tel, msgCobranca(a, pend.length ? pend : [Object.assign({ref: fRef}, s)])); c.addEventListener('click', () => { a.cobradoEm = toISO(hoje()); salvar(); }); }
+    if (c) { const pend = pendencias(a).filter(p => p.ref.slice(0, 7) <= fRef); c.href = waLink(a.tel, msgCobranca(a, pend.length ? pend : [Object.assign({ref}, s)])); c.addEventListener('click', () => { a.cobradoEm = toISO(hoje()); salvar(); }); }
     $('fLista').appendChild(d);
   });
 }
@@ -984,10 +1040,10 @@ function renderInicioAviso(){ renderInicio(); }
 $('fPrev').onclick = () => { const [y, m] = fRef.split('-').map(Number); fRef = mesRef(new Date(y, m - 2, 1)); renderFin(); };
 $('fNext').onclick = () => { const [y, m] = fRef.split('-').map(Number); fRef = mesRef(new Date(y, m, 1)); renderFin(); };
 document.querySelectorAll('#fFiltro .chip').forEach(c => c.onclick = () => { fFiltro = c.dataset.f; renderFin(); });
-function abrirPagamento(a, ref){
+function abrirPagamento(a, ref, s){
   let forma = 'Pix'; const c = $('pgCorpo');
-  c.innerHTML = `<h2>Recebi de ${esc(pnome(a))}</h2><p class="hint">Mensalidade de ${nomeMes(ref).toLowerCase()} · ${plano(a.plano).n}</p>
-    <div class="grid"><div class="full"><label>Valor</label><div class="suf"><input id="pgV" type="number" inputmode="decimal" step="0.01" value="${valorAluno(a)}"><span>R$</span></div></div>
+  c.innerHTML = `<h2>Recebi de ${esc(pnome(a))}</h2><p class="hint">${ehProp(ref) ? 'Primeira mensalidade (proporcional)' : 'Mensalidade de ' + nomeMes(ref).toLowerCase()} · ${plano(a.plano).n}${s && s.obs ? ' · ' + esc(ehProp(ref) ? s.obs.replace('1ª mensalidade · ', '') : s.obs) : ''}</p>
+    <div class="grid"><div class="full"><label>Valor</label><div class="suf"><input id="pgV" type="number" inputmode="decimal" step="0.01" value="${s && s.valor != null ? s.valor : valorAluno(a)}"><span>R$</span></div></div>
     <div class="full"><label>Forma</label><div class="seg" id="pgF" style="margin:0"><button class="on">Pix</button><button>Dinheiro</button><button>Cartão</button></div></div>
     <div class="full"><label>Data do pagamento</label><input id="pgD" type="date" value="${toISO(hoje())}"></div></div>
     <label class="check" style="margin-top:12px"><input type="checkbox" id="pgRec" checked> Mandar recibo no WhatsApp</label>
@@ -1007,7 +1063,7 @@ function filaCobranca(){
   const todos = alunos.filter(a => a.ativo).map(a => ({a, pend: pendencias(a)})).filter(x => x.pend.length);
   const pendentes = todos.filter(x => x.a.cobradoEm !== hj);
   todos.pendentes = pendentes.map(x => ({nome: x.a.nome, tel: x.a.tel, sub: x.pend.length > 1 ? `${x.pend.length} mensalidades` : x.pend[0].st === 'hoje' ? 'vence hoje' : 'venceu ' + fmtD(x.pend[0].venc),
-    valor: valorAluno(x.a) * x.pend.length, msg: msgCobranca(x.a, x.pend), onSent: () => { x.a.cobradoEm = hj; salvar(); }}));
+    valor: x.pend.reduce((t, p) => t + (p.valor != null ? p.valor : valorAluno(x.a)), 0), msg: msgCobranca(x.a, x.pend), onSent: () => { x.a.cobradoEm = hj; salvar(); }}));
   todos.cobradas = todos.length - pendentes.length;
   return todos;
 }
@@ -1122,8 +1178,8 @@ function renderAlu(){
     m.innerHTML = h;
     m.querySelectorAll('[data-c]').forEach(b => b.onclick = () => aluEscolher(a, cr[+b.dataset.c], null));
   } else {
-    const ref = mesRef(hoje()), st = statusMens(a, ref), hist = pags.filter(x => x.aluno === a.id).sort((x, y) => y.ref.localeCompare(x.ref)).slice(0, 6);
-    h += `<div class="card" style="margin-top:12px"><h2>Mensalidade de ${nomeMes(ref).split(' ')[0].toLowerCase()}</h2><div style="font-size:26px;font-weight:700">${brl(valorAluno(a))}</div>
+    const ref = mesRef(hoje()), cs = cobrancasMes(a, ref), st = cs.find(x => x.st !== 'pago') || cs[cs.length - 1] || (a.venc ? cobrancasMes(a, mesSeg(ref))[0] : null) || null, hist = pags.filter(x => x.aluno === a.id).sort((x, y) => y.ref.localeCompare(x.ref)).slice(0, 6);
+    h += `<div class="card" style="margin-top:12px"><h2>${st ? rotuloRef(st) : 'Mensalidade de ' + nomeMes(ref).split(' ')[0].toLowerCase()}</h2><div style="font-size:26px;font-weight:700">${brl(st ? st.valor : valorAluno(a))}</div>${st && st.obs ? `<div class="hint" style="margin:2px 0 0">${esc(st.obs)}</div>` : ''}
       <div style="margin:4px 0 8px">${!st ? '<span class="tag mut">vencimento a definir</span>' : st.st === 'pago' ? `<span class="tag ok">Pago em ${fmtD(st.p.pagoEm)}</span>` : st.st === 'atraso' ? `<span class="tag bad">Venceu em ${fmtD(st.venc)}</span>` : st.st === 'hoje' ? '<span class="tag warn">Vence hoje</span>' : `<span class="tag mut">Vence em ${fmtD(st.venc)}</span>`}</div>
       ${cfg.pix ? `<div class="hint" style="margin:0 0 6px">Pague pelo Pix:</div><div class="row"><input value="${esc(cfg.pix)}" readonly style="flex:1"><button class="btn small" id="aluPix">Copiar</button></div>` : '<p class="hint">A chave Pix aparece aqui quando o estúdio cadastrar em Ajustes.</p>'}</div>
       <div class="sec" style="font-size:14px;font-weight:700;margin:4px 2px 8px">Histórico</div>` + (hist.length ? hist.map(x => `<div class="aula"><div><div class="q">${nomeMes(x.ref)}</div><div class="s">Pago em ${fmtD(x.pagoEm)} · ${x.forma}</div></div><b>${brl(x.valor)}</b></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>');
@@ -1233,6 +1289,9 @@ function renderAjustes(){
   $('cfPlanos').querySelectorAll('input').forEach(inp => inp.oninput = () => { const p = cfg.planos[+inp.dataset.i]; p[inp.dataset.k] = inp.dataset.k === 'n' ? inp.value : num(inp.value); salvar(); });
   $('cfPlanos').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const p = cfg.planos[+b.dataset.del];
     if (alunos.some(a => a.plano === p.id)) return toast('Tem aluno nesse plano. Troque o plano deles antes.'); cfg.planos.splice(+b.dataset.del, 1); salvar(); renderAjustes(); });
+  const pr = cfg.primeira || 'cheio';
+  $('cfPrim').innerHTML = Object.entries(MODOS_PRIM).map(([k, m]) => `<label class="check" style="align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--line);border-radius:12px;${k === pr ? 'background:#faf8f5;border-color:var(--ink)' : ''}"><input type="radio" name="cfPrim" value="${k}" ${k === pr ? 'checked' : ''} style="margin-top:3px"><span><b>${m.n}</b><br><span class="hint" style="margin:0">${m.d}</span><br><span class="hint" style="margin:0;color:var(--blue)">${exemploPrim(k)}</span></span></label>`).join('');
+  $('cfPrim').querySelectorAll('input').forEach(i => i.onchange = () => { cfg.primeira = i.value; salvar(); renderAjustes(); toast('Regra da 1ª mensalidade salva'); });
   const r = cfg.regra; $('rgMax').value = r.max; $('rgAnt').value = r.ant; $('rgManha').value = r.manha; $('rgVesp').value = r.vesp; $('rgAdmIni').value = r.admIni; $('rgAdmFim').value = r.admFim;
   $('bkInfo').textContent = cfg.ultBackup ? `Última cópia: ${fromISO(cfg.ultBackup).toLocaleDateString('pt-BR')}.` : 'Os dados ficam só neste celular. Salve uma cópia toda semana.';
 }
@@ -1302,7 +1361,7 @@ async function gerarPDF(completo){
     doc.addPage('a4', 'landscape'); doc.setFontSize(15); doc.setTextColor(30); doc.text(`${cfg.estudio} · Mensalidades de ${nomeMes(ref)}`, 14, 14);
     const lin = alunos.filter(a => a.ativo).map(a => ({a, s: statusMens(a, ref)})).sort((x, y) => x.a.nome.localeCompare(y.a.nome));
     doc.autoTable({startY: 19, theme: 'striped', head: [['Nome', 'Valor', 'Vencimento', 'Situação', 'Reposições no mês']],
-      body: lin.map(({a, s}) => [a.nome, brl(s && s.p ? s.p.valor : valorAluno(a)), s ? fmtD(s.venc) : 'definir',
+      body: lin.map(({a, s}) => [a.nome, brl(s ? s.valor : valorAluno(a)), s ? fmtD(s.venc) : 'definir',
         !s ? 'sem vencimento cadastrado' : s.st === 'pago' ? `Pago em ${fmtD(s.p.pagoEm)} (${s.p.forma})` : s.st === 'atraso' ? 'ATRASADO' : s.st === 'hoje' ? 'Vence hoje' : 'Em aberto',
         `${usadasNoMes(a.id, toISO(hoje()))} de ${cfg.regra.max}`]),
       styles: {fontSize: 8.5, cellPadding: 1.4}, headStyles: {fillColor: COR}, margin: {left: 14, right: 14, bottom: 12},
@@ -1394,11 +1453,19 @@ async function sincronizar(){
 window.addEventListener('online', agendarSync);
 window.addEventListener('beforeunload', e => { if (syncTimer && Object.keys(enviado).length && CHAVES.some(k => JSON.stringify(valorDe(k)) !== enviado[k])) { e.preventDefault(); e.returnValue = ''; } });
 
+function olhoSenha(){ document.querySelectorAll('#authCorpo input[type=password]').forEach(i => {
+  if (i.dataset.olho) return; i.dataset.olho = 1;
+  const w = document.createElement('div'); w.style.cssText = 'position:relative';
+  i.parentNode.insertBefore(w, i); w.appendChild(i); i.style.paddingRight = '46px';
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = '👁️'; b.title = 'Mostrar senha'; b.setAttribute('aria-label', 'Mostrar senha');
+  b.style.cssText = 'position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;font-size:18px;padding:6px;cursor:pointer;opacity:.6';
+  b.onclick = () => { const ver = i.type === 'password'; i.type = ver ? 'text' : 'password'; b.textContent = ver ? '🙈' : '👁️'; b.title = ver ? 'Esconder senha' : 'Mostrar senha'; b.style.opacity = ver ? '1' : '.6'; };
+  w.appendChild(b); }); }
 function telaAuth(modo, msg){
   $('auth').style.display = 'flex';
   const c = $('authCorpo');
   if (modo === 'estudio') {
-    c.innerHTML = `<h2 style="font-size:18px;margin:0 0 6px">Vamos criar seu estúdio</h2><p class="hint">Você pode mudar tudo depois, em Ajustes.</p>
+    c.innerHTML = `<h2 style="font-size:18px;margin:0 0 6px">Vamos criar seu estúdio</h2><p class="hint">Você entrou como <b>${esc(usuario ? usuario.email : '')}</b>. Se já tem um estúdio, toque em <b>Sair</b> e entre com o e-mail certo.</p>
       <label>Nome do estúdio</label><input id="auEst" placeholder="Ex.: VG Pilates">
       <label>Seu nome (assina as mensagens)</label><input id="auAdm" placeholder="Ex.: Giovana">
       <div id="auMsg"></div><button class="btn primary block" id="auOk" style="margin-top:14px">Criar meu estúdio</button>
@@ -1422,6 +1489,7 @@ function telaAuth(modo, msg){
     <button class="btn primary block" id="auOk" style="margin-top:14px">${criar ? 'Criar conta grátis' : 'Entrar'}</button>
     ${criar ? '' : '<button class="link" id="auEsqueci" style="margin-top:10px">Esqueci minha senha</button>'}`;
   c.querySelectorAll('.seg button').forEach(b => b.onclick = () => telaAuth(b.dataset.m));
+  olhoSenha();
   const aviso = (t, tipo) => $('auMsg').innerHTML = `<div class="alert ${tipo || 'bad'}">${t}</div>`;
   $('auOk').onclick = async () => {
     const email = $('auEmail').value.trim(), senha = $('auSenha').value;
@@ -1506,6 +1574,7 @@ function boot(){
 function novaSenha(){
   $('auth').style.display = 'flex';
   $('authCorpo').innerHTML = `<h2 style="font-size:18px;margin:0 0 6px">Crie uma nova senha</h2><label>Nova senha</label><input id="auNova" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"><div id="auMsg"></div><button class="btn primary block" id="auOk" style="margin-top:14px">Salvar nova senha</button>`;
+  olhoSenha();
   $('auOk').onclick = async () => { const p = $('auNova').value; if (p.length < 8) return $('auMsg').innerHTML = '<div class="alert bad">Use pelo menos 8 caracteres.</div>';
     const {error} = await SB.auth.updateUser({password: p}); if (error) return $('auMsg').innerHTML = `<div class="alert bad">${esc(traduzErro(error.message))}</div>`; toast('Senha alterada ✔'); iniciarSessao(); };
 }
