@@ -526,7 +526,7 @@ function msgCobranca(a, pend){
   return t + `\n\nQualquer dúvida, é só chamar. Obrigada! 💕\n${assin()}`;
 }
 const msgLembrete = (a, data, hs) => `Oi, ${pnome(a)}! 😊\nLembrete: sua aula de Pilates é ${dias(data) === 1 ? '*amanhã*' : dias(data) === 0 ? '*hoje*' : 'na ' + DIASL[fromISO(data).getDay()]} (${fmtDia(data)}) às *${hs.map(hCurta).join(' e ')}*.\n\nSe precisar faltar, avise com antecedência para ter direito à reposição. Até lá! 💪\n${assin()}`;
-const msgRepo = (a, f, r) => `Oi, ${pnome(a)}! 😊\nSua reposição está confirmada ✅\n\nAula de ${fmtDia(f.data)} às ${hCurta(f.h)} ➜ *${fmtDia(r.data)} às ${hCurta(r.h)}*.\n\nVocê usou ${usadasNoMes(a.id, f.data)} de ${cfg.regra.max} reposições de ${nomeMes(f.data.slice(0,7)).split(' ')[0].toLowerCase()} (elas valem só dentro do mês). Até lá! 💪\n${assin()}`;
+const msgRepo = (a, f, r) => `Oi, ${pnome(a)}! 😊\nSua reposição está confirmada ✅\n\n❌ Falta: ${fmtDia(f.data)} às ${hCurta(f.h)}\n✅ Reposição: *${fmtDia(r.data)} às ${hCurta(r.h)}*\n\nVocê usou ${usadasNoMes(a.id, f.data)} de ${cfg.regra.max} reposições de ${nomeMes(f.data.slice(0,7)).split(' ')[0].toLowerCase()} (elas valem só dentro do mês). Até lá! 💪\n${assin()}`;
 const msgSemDireito = (a, f, motivo) => `Oi, ${pnome(a)}! Tudo bem?\nRegistramos sua falta na aula de ${fmtDia(f.data)} às ${hCurta(f.h)}.\nInfelizmente essa falta não dá direito a reposição: ${motivo.replace(/\.$/, '').toLowerCase()}.\n\nQualquer dúvida, estou à disposição. 💕\n${assin()}`;
 const msgRecibo = (a, p) => `Oi, ${pnome(a)}! Recebemos o pagamento da sua mensalidade de ${nomeMes(p.ref).toLowerCase()} (${brl(p.valor)}) ✅\nObrigada! 💕\n${assin()}`;
 
