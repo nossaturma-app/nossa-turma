@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nossa Turma — Gestão do Estúdio</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+IDxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjE2IiBmaWxsPSIjZmY3YTU5Ii8+IDxnIHRyYW5zZm9ybT0icm90YXRlKC02IDMyIDM0KSI+IDxyZWN0IHg9IjExIiB5PSIxNiIgd2lkdGg9IjQyIiBoZWlnaHQ9IjM3IiByeD0iOSIgZmlsbD0iI2ZmZmZmZiIvPiA8cGF0aCBkPSJNMTEgMjVhOSA5IDAgMCAxIDktOWgyNGE5IDkgMCAwIDEgOSA5djJIMTF6IiBmaWxsPSIjMTI4NTdhIi8+IDxyZWN0IHg9IjIwIiB5PSIxMSIgd2lkdGg9IjQuNSIgaGVpZ2h0PSIxMCIgcng9IjIuMjUiIGZpbGw9IiNmZmM5NGEiLz4gPHJlY3QgeD0iMzkuNSIgeT0iMTEiIHdpZHRoPSI0LjUiIGhlaWdodD0iMTAiIHJ4PSIyLjI1IiBmaWxsPSIjZmZjOTRhIi8+IDwhLS0gY2FyaW5oYTogdW0gb2xobyBwaXNjYW5kbyAoY2hlY2spIC0tPiA8Y2lyY2xlIGN4PSIyNSIgY3k9IjM2IiByPSIzIiBmaWxsPSIjMWIzYTM3Ii8+IDxwYXRoIGQ9Ik0zNiAzNi4ybDIuNCAyLjQgNC40LTQuOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTI4NTdhIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPiA8cGF0aCBkPSJNMjMuNSA0My41cTguNSA3IDE3IDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFiM2EzNyIgc3Ryb2tlLXdpZHRoPSIyLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPiA8Y2lyY2xlIGN4PSIyMC41IiBjeT0iNDIiIHI9IjIuMiIgZmlsbD0iI2ZmYjNhMSIvPjxjaXJjbGUgY3g9IjQzLjUiIGN5PSI0MiIgcj0iMi4yIiBmaWxsPSIjZmZiM2ExIi8+IDwvZz4gPC9zdmc+">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f6f4f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nossa Turma">
 <script src="js/supabase.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@600&display=swap" rel="stylesheet">
@@ -252,7 +258,15 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
       <div class="full"><label>Nome do estúdio</label><input id="cfEst"></div>
       <div class="full"><label>Quem administra (assina as mensagens)</label><input id="cfAdm"></div>
       <div class="full"><label>Chave Pix</label><input id="cfPix" placeholder="Celular, e-mail, CPF ou aleatória"></div>
+      <div class="full"><label>WhatsApp do estúdio</label><input id="cfWhats" type="tel" inputmode="tel" placeholder="(12) 99999-9999">
+        <p class="hint" style="margin:6px 0 0">As alunas usam para avisar o estúdio quando mandam um pedido pelo app.</p></div>
     </div>
+  </div>
+  <div class="card">
+    <h2>🔔 Notificações no celular</h2>
+    <p class="hint">Receba um aviso quando uma aluna mandar pedido, mesmo com o app fechado. Ative em cada aparelho que quiser usar.</p>
+    <div id="pushInfo" class="hint" style="margin:0 0 10px"></div>
+    <div class="row"><button class="btn primary small" id="pushAtivar">Ativar neste aparelho</button><button class="btn small" id="pushTeste" style="display:none">Enviar teste</button><button class="link" id="pushDesativar" style="display:none">Desativar</button></div>
   </div>
   <div class="card">
     <h2>Horários das aulas</h2>
@@ -962,7 +976,12 @@ function abrirAluno(a){
       ${fl.map(e => { const r = e.repoId && eventos.find(x => x.id === e.repoId); return `<div class="parc item" style="padding:7px 0"><span class="sub">Faltou ${fmtD(e.data)} ${hCurta(e.h)}</span><span class="sub">${!e.direito ? '<span class="tag mut">sem direito</span>' : r ? '↺ ' + fmtD(r.data) + ' ' + hCurta(r.h) : expirou(e) ? '<span class="tag mut">expirou</span>' : '<span class="tag blue">a agendar até ' + fmtD(fimDoMes(e.data)) + '</span>'}</span></div>`; }).join('')}
       <h2 style="margin-top:12px">Pagamentos</h2>${ult.length ? ult.map(p => `<div class="item" style="padding:7px 0"><span class="sub">${nomeMes(p.ref)}</span><span class="sub pago">${brl(p.valor)} · ${fmtD(p.pagoEm)} · ${p.forma}</span></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>'}
       ${a.tel ? `<a class="btn wa small" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(a.tel, `Oi, ${pnome(a)}! 😊`)}">Abrir conversa no WhatsApp</a>` : ''}
+      <h2 style="margin-top:14px">📲 Acesso da aluna</h2><p class="hint" style="margin:0 0 6px">Link pessoal para ela ver os horários e pedir reposição. Sem senha.</p>
+      <div class="row"><button class="btn small primary" id="maAcesso">Enviar acesso</button><button class="btn small" id="maAcessoNovo">Gerar novo link</button></div>
       <button class="btn ghost small" id="maExcl" style="margin-top:8px">Excluir aluno</button></div>`;
+    $('maAcesso').onclick = () => enviarAcesso(a, false);
+    let confNovo = false;
+    $('maAcessoNovo').onclick = e => { if (!confNovo) { confNovo = true; e.target.textContent = 'Tocar de novo: o link antigo para de funcionar'; return; } enviarAcesso(a, true); };
     let conf = false;
     $('maExcl').onclick = e => { if (!conf) { conf = true; e.target.textContent = 'Toque de novo para excluir (apaga histórico)'; return; }
       (a.docs || []).forEach(d => DB.del(d.id).catch(() => {}));
@@ -971,6 +990,30 @@ function abrirAluno(a){
   renderDocs(a);
   $('mAluno').classList.add('on');
 }
+// ----- link pessoal da aluna -----
+function novoCodigo(){ const c = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', b = new Uint8Array(24); crypto.getRandomValues(b); return Array.from(b, x => c[x % c.length]).join(''); }
+async function linkDaAluna(a, novo){
+  if (!SB || !estudioId) throw new Error('Sem conexão com a nuvem');
+  if (novo) await SB.from('acessos_aluno').update({ativo: false}).eq('estudio_id', estudioId).eq('aluno_id', a.id);
+  else {
+    const {data, error} = await SB.from('acessos_aluno').select('token').eq('estudio_id', estudioId).eq('aluno_id', a.id).eq('ativo', true).limit(1);
+    if (error) throw error;
+    if (data && data.length) return data[0].token;
+  }
+  const token = novoCodigo();
+  const {error} = await SB.from('acessos_aluno').insert({token, estudio_id: estudioId, aluno_id: a.id});
+  if (error) throw error;
+  return token;
+}
+async function enviarAcesso(a, novo){
+  toast('Preparando o link…');
+  let token; try { token = await linkDaAluna(a, novo); } catch(e){ return toast('Não consegui gerar o link: ' + traduzErro(e.message)); }
+  const link = location.origin + location.pathname + '?a=' + token;
+  const msg = `Oi, ${pnome(a)}! 😊\nEste é o seu acesso ao app do *${cfg.estudio}*:\n${link}\n\nPor ele você vê seus horários, avisa quando não puder vir e pede reposição. Dica: salve na tela inicial do celular.\n\n🔒 O link é só seu, não compartilhe.\n${assin()}`;
+  fechar('mAluno');
+  abrirMsg(novo ? 'Link novo gerado ✔' : 'Acesso da aluna', a.nome + (novo ? ' · o link antigo foi desativado' : ''), a.tel, msg);
+}
+
 let planoAnt = null;
 function primHint(){
   const venc = Math.round(num($('maVenc').value)), ini = $('maIni').value;
@@ -1218,6 +1261,7 @@ function aluEscolher(a, f, r){
   $('mAcao').classList.add('on');
 }
 function criarPedido(a, data, h, r, novo, faltaId){
+  if (MODO_ALUNO) return enviarPedidoNuvem({data, h, novo, faltaId, direito: r ? r.ok : true, motivo: r ? r.motivo : 'Crédito de reposição'});
   pedidos.push({id: uid(), aluno: a.id, criadoEm: new Date().toISOString(), data, h, avisoEm: new Date().toISOString(), direito: r ? r.ok : true, motivo: r ? r.motivo : 'Crédito de reposição', novo, faltaId, status: 'pendente'});
   salvar(); aluTab = 'repo'; renderAlu();
   toast(`Pedido enviado ✔ ${cfg.admin || 'O estúdio'} vai aprovar`);
@@ -1231,7 +1275,7 @@ function renderPedidosAdm(){
       <div style="margin:4px 0">${p.faltaId ? '<span class="tag blue">usa crédito</span>' : p.direito ? '<span class="tag ok">aviso no prazo</span>' : '<span class="tag bad">fora do prazo · sem reposição</span>'} ${semVaga ? '<span class="tag bad">horário lotou</span>' : ''}</div>
       <div class="row"><button class="btn small primary" data-ap="${p.id}" ${semVaga ? 'disabled' : ''}>Aprovar</button><button class="btn small" data-rc="${p.id}">Recusar</button></div></div>`; }).join('');
   box.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => aprovarPedido(pedidos.find(p => p.id === b.dataset.ap)));
-  box.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => { const p = pedidos.find(x => x.id === b.dataset.rc), a = aluno(p.aluno); p.status = 'recusado'; p.resposta = 'combine com o estúdio pelo WhatsApp'; salvar(); render();
+  box.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => { const p = pedidos.find(x => x.id === b.dataset.rc), a = aluno(p.aluno); p.status = 'recusado'; p.resposta = 'combine com o estúdio pelo WhatsApp'; salvar(); render(); responderNuvem(p);
     abrirMsg('Pedido recusado', a.nome, a.tel, `Oi, ${pnome(a)}! Sobre seu pedido (${descPedido(p)}), não consegui aprovar. Me chama aqui para combinarmos, tá? 💕\n${assin()}`); });
 }
 function aprovarPedido(p){
@@ -1241,7 +1285,7 @@ function aprovarPedido(p){
   else { f = {id: uid(), tipo: 'falta', aluno: a.id, data: p.data, h: p.h, avisoEm: p.avisoEm, direito: p.direito, motivo: p.direito ? 'Aviso no prazo (pelo app)' : p.motivo}; eventos.push(f); }
   let r = null;
   if (p.novo && f && f.direito && !f.repoId) { r = {id: uid(), tipo: 'repo', aluno: a.id, data: p.novo.data, h: p.novo.h, faltaId: f.id}; eventos.push(r); f.repoId = r.id; }
-  p.status = 'aprovado'; salvar(); render();
+  p.status = 'aprovado'; salvar(); render(); responderNuvem(p);
   if (r) abrirMsg('Aprovado ✅', `${a.nome} · ${cap(fmtDia(r.data))} às ${hCurta(r.h)}`, a.tel, msgRepo(a, f, r));
   else toast(`Falta de ${pnome(a)} registrada ✔`);
 }
@@ -1274,7 +1318,7 @@ function mostraFila(){
 
 // ================= AJUSTES =================
 function renderAjustes(){
-  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfVagas').value = cfg.vagas;
+  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfWhats').value = cfg.whats || ''; renderPush(); $('cfVagas').value = cfg.vagas;
   $('cfHoras').innerHTML = cfg.horas.slice().sort().map(h => `<button class="chip on" data-h="${h}">${hCurta(h)} ✕</button>`).join('');
   $('cfHoras').querySelectorAll('[data-h]').forEach(b => b.onclick = () => {
     const h = b.dataset.h, usam = alunos.filter(a => a.ativo && a.slots.some(s => s.endsWith('-' + h))).length;
@@ -1311,6 +1355,7 @@ $('cfLogoDel').onclick = () => { cfg.logo = ''; salvar(); renderLogo(); };
 $('cfEst').oninput = e => { cfg.estudio = e.target.value; salvar(); $('hNome').textContent = cfg.estudio; };
 $('cfAdm').oninput = e => { cfg.admin = e.target.value; salvar(); };
 $('cfPix').oninput = e => { cfg.pix = e.target.value; salvar(); };
+$('cfWhats').oninput = e => { cfg.whats = e.target.value.replace(/\D/g, ''); salvar(); };
 $('cfVagas').oninput = e => { const v = Math.round(num(e.target.value)); if (v > 0) { cfg.vagas = v; salvar(); } };
 $('cfAddHora').onclick = () => { const h = $('cfNovaHora').value; if (!h) return toast('Escolha o horário'); if (cfg.horas.includes(h)) return toast('Esse horário já existe');
   cfg.horas.push(h); cfg.horas.sort(); salvar(); $('cfNovaHora').value = ''; renderAjustes(); toast(`Horário ${hCurta(h)} incluído`); };
@@ -1527,7 +1572,7 @@ function traduzErro(m){
 async function iniciarSessao(){
   const {data: {session}} = await SB.auth.getSession();
   usuario = session ? session.user : null;
-  if (!usuario) return telaAuth('entrar');
+  if (!usuario) { let tk = null; try { tk = localStorage.getItem('nt_aluno'); } catch(e){} if (tk) return iniciarPortal(tk); return telaAuth('entrar'); }
   // qual estúdio é desta pessoa?
   const {data: mb, error} = await SB.from('membros').select('estudio_id, papel').eq('user_id', usuario.id).limit(1);
   let ultimo = null; try { ultimo = localStorage.getItem('nt_est_' + usuario.id); } catch(e){}
@@ -1550,8 +1595,35 @@ async function iniciarSessao(){
   }
   entrouNoApp();
 }
+// Busca os pedidos que as alunas mandaram pelo link e coloca na lista "Pedidos dos alunos"
+let pedTimer = null;
+async function sincPedidos(){
+  if (!SB || !estudioId || MODO_ALUNO || !navigator.onLine) return;
+  let data, error; try { ({data, error} = await SB.from('pedidos_aluno').select('id, aluno_id, dados, status, criado_em').eq('estudio_id', estudioId).eq('status', 'pendente')); } catch(e){ return; }
+  if (error || !data) return;
+  let novos = 0;
+  for (const x of data) {
+    const local = pedidos.find(p => p.id === x.id);
+    if (local) { if (local.status !== 'pendente') responderNuvem(local); continue; } // já respondido aqui, mas a nuvem não soube: tenta de novo
+    const a = aluno(x.aluno_id); if (!a) continue;
+    const d = x.dados || {};
+    // a regra do prazo é conferida de novo aqui, com o horário em que o pedido chegou no servidor
+    const r = d.faltaId ? {ok: true, motivo: 'Crédito de reposição'} : avaliar(a.id, d.data, d.h, new Date(x.criado_em), false);
+    pedidos.push({id: x.id, aluno: a.id, criadoEm: x.criado_em, avisoEm: x.criado_em, data: d.data, h: d.h, novo: d.novo || null, faltaId: d.faltaId || null, direito: r.ok, motivo: r.motivo, status: 'pendente', nuvem: true});
+    novos++;
+  }
+  if (novos) { salvar(); render(); toast(`📥 ${novos} pedido${novos > 1 ? 's' : ''} novo${novos > 1 ? 's' : ''} de aluno`); }
+}
+async function responderNuvem(p){
+  if (!p || !p.nuvem || !SB) return;
+  try { await SB.from('pedidos_aluno').update({status: p.status, resposta: p.resposta || null, atualizado_em: new Date().toISOString()}).eq('id', p.id); } catch(e){}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sincPedidos(); });
+
 function entrouNoApp(){
   ajustesDeCarga(); cacheLocal();
+  clearInterval(pedTimer); pedTimer = setInterval(sincPedidos, 60000); setTimeout(sincPedidos, 500);
+  registrarCarteiro();
   $('auth').style.display = 'none';
   $('hNome').textContent = cfg.estudio;
   if ($('contaInfo')) $('contaInfo').innerHTML = `Entrou como <b>${esc(usuario ? usuario.email : '')}</b> · estúdio <b>${esc(cfg.estudio)}</b>`;
@@ -1565,8 +1637,104 @@ async function sair(){
   telaAuth('entrar');
 }
 $('btnSair').onclick = sair;
+// ================= NOTIFICAÇÕES NO CELULAR (Web Push) =================
+// 1) o "carteiro" (sw.js) fica de plantão no aparelho
+// 2) o aparelho gera um endereço único e guardamos na tabela push_inscricoes
+// 3) quando chega pedido de aluna, o banco chama o "mensageiro" (Edge Function notificar), que entrega
+const VAPID_PUBLICA = 'BEm4iZ6oYaUKbwUyy4mH03X0M2Rk_emzE_NtyCxTlYZVJUykNKNSBOwzZ5dME2wvD2V_So5z7rb2vDk-dXdiSaI';
+const temPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const ehIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const instalado = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const b64u8 = b => { const p = '='.repeat((4 - b.length % 4) % 4), r = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, c => c.charCodeAt(0)); };
+function registrarCarteiro(){ if ('serviceWorker' in navigator) return navigator.serviceWorker.register('sw.js').catch(() => null); return Promise.resolve(null); }
+async function inscricaoAtual(){ if (!temPush()) return null; const reg = await navigator.serviceWorker.getRegistration(); return reg ? reg.pushManager.getSubscription() : null; }
+async function renderPush(){
+  const info = $('pushInfo'); if (!info) return;
+  const at = $('pushAtivar'), te = $('pushTeste'), de = $('pushDesativar');
+  if (!temPush()) {
+    at.style.display = 'none'; te.style.display = de.style.display = 'none';
+    info.innerHTML = ehIOS() && !instalado() ? '📱 <b>No iPhone:</b> toque em <b>Compartilhar</b> › <b>Adicionar à Tela de Início</b>. Depois abra o Nossa Turma pelo ícone e volte aqui.' : 'Este navegador não aceita notificações. No Android, use o Chrome.';
+    return;
+  }
+  let sub = null; try { sub = await inscricaoAtual(); } catch(e){}
+  const neg = Notification.permission === 'denied';
+  at.style.display = sub ? 'none' : ''; te.style.display = de.style.display = sub ? '' : 'none';
+  info.innerHTML = sub ? '✅ <b>Ativadas neste aparelho.</b> Você recebe um aviso a cada pedido de aluna.'
+    : neg ? '🚫 As notificações estão <b>bloqueadas</b> para este site. Libere nas configurações do navegador (cadeado ao lado do endereço › Notificações › Permitir) e toque em Ativar.'
+    : ehIOS() && !instalado() ? '📱 No iPhone, primeiro <b>Adicionar à Tela de Início</b> e abra pelo ícone.' : 'Ainda não ativadas neste aparelho.';
+}
+async function ativarPush(){
+  if (!SB || !estudioId) return toast('Entre na sua conta primeiro');
+  try {
+    const reg = await registrarCarteiro(); if (!reg) return toast('Não consegui preparar as notificações');
+    await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { renderPush(); return toast('Permissão não concedida'); }
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u8(VAPID_PUBLICA)});
+    const {error} = await SB.from('push_inscricoes').upsert({endpoint: sub.endpoint, estudio_id: estudioId, user_id: usuario.id, dados: sub.toJSON(), aparelho: navigator.userAgent.slice(0, 150)});
+    if (error) throw error;
+    toast('🔔 Notificações ativadas'); renderPush();
+  } catch(e){ toast('Não consegui ativar: ' + traduzErro(e && e.message)); renderPush(); }
+}
+async function desativarPush(){
+  try { const sub = await inscricaoAtual(); if (sub) { await SB.from('push_inscricoes').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); } toast('Notificações desativadas neste aparelho'); }
+  catch(e){ toast('Não consegui desativar'); }
+  renderPush();
+}
+async function testarPush(){
+  const {data, error} = await SB.rpc('testar_push');
+  if (error) return toast('Não consegui enviar: ' + traduzErro(error.message));
+  toast(data ? '🔔 Teste enviado! Deve chegar em alguns segundos' : 'Nenhum aparelho ativado ainda');
+}
+$('pushAtivar').onclick = ativarPush; $('pushDesativar').onclick = desativarPush; $('pushTeste').onclick = testarPush;
+
+// ================= PORTAL DA ALUNA (link pessoal ?a=CODIGO) =================
+// A aluna não tem login: o código secreto do link é a "chave do armarinho" dela.
+// O banco (função aluno_portal) devolve só os dados dela + as vagas, sem nomes de outras alunas.
+let MODO_ALUNO = null; // guarda o código quando a página foi aberta pela aluna
+async function carregarPortal(){
+  const {data, error} = await SB.rpc('aluno_portal', {p_token: MODO_ALUNO});
+  if (error) { $('aluMain').innerHTML = `<div class="card"><div class="empty">📴 Não consegui carregar agora. Verifique a internet e toque em ↻.</div></div>`; return false; }
+  if (!data) { try { if (localStorage.getItem('nt_aluno') === MODO_ALUNO) localStorage.removeItem('nt_aluno'); } catch(e){} $('aluNav').style.display = 'none'; $('aluMain').innerHTML = `<div class="card" style="text-align:center;padding:24px 16px"><div style="font-size:40px">🔒</div><h2 style="font-size:18px">Link inválido ou desativado</h2><p class="hint">Peça um link novo ao estúdio pelo WhatsApp.</p></div>`; return false; }
+  cfg = Object.assign(CFG0(), data.cfg);
+  const eu = Object.assign({slots: [], ativo: true}, data.eu);
+  alunos = [eu].concat(data.outros || []); eventos = data.eventos || []; pags = data.pags || [];
+  // pedidos vindos da caixa de entrada, no mesmo formato da demonstração
+  pedidos = (data.pedidos || []).map(x => Object.assign({}, x.dados, {id: x.id, aluno: eu.id, criadoEm: x.criado_em, status: x.status, resposta: x.resposta}));
+  aluAtual = eu;
+  $('aluEst').textContent = cfg.estudio; document.title = cfg.estudio + ' · Área do aluno';
+  if (cfg.logo) { $('aluLogo').src = cfg.logo; $('aluLogo').style.display = ''; } else $('aluLogo').style.display = 'none';
+  renderAlu(); return true;
+}
+async function iniciarPortal(token){
+  MODO_ALUNO = token; try { localStorage.setItem('nt_aluno', token); } catch(e){}
+  $('auth').style.display = 'none';
+  $('alu').style.display = ''; document.body.style.overflow = 'hidden';
+  document.querySelector('.alu-demo').style.display = 'none';
+  $('aluSair').textContent = '↻ Atualizar'; $('aluSair').onclick = () => { toast('Atualizando…'); carregarPortal(); };
+  if (!$('aluSouEst')) { const l = document.createElement('div'); l.style.cssText = 'text-align:center;margin:-6px 0 18px';
+    l.innerHTML = '<button class="link" id="aluSouEst" style="font-size:12px">É do estúdio? Entrar no painel</button>'; $('aluNav').before(l);
+    $('aluSouEst').onclick = () => { try { localStorage.removeItem('nt_aluno'); } catch(e){} location.href = location.pathname; }; }
+  $('aluMain').innerHTML = '<div class="card"><div class="empty">Carregando…</div></div>';
+  await carregarPortal();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') carregarPortal(); });
+}
+async function enviarPedidoNuvem(dados){
+  const {error} = await SB.rpc('aluno_pedir', {p_token: MODO_ALUNO, p_dados: dados});
+  if (error) { toast(/fetch|network/i.test(error.message) ? 'Sem internet: tente de novo' : error.message); return; }
+  aluTab = 'repo'; await carregarPortal();
+  toast(`Pedido enviado ✔ ${cfg.admin || 'O estúdio'} vai responder`);
+  if (cfg.whats && aluAtual) abrirMsg('Pedido enviado ✔', `Quer avisar ${cfg.admin || 'o estúdio'} pelo WhatsApp? (opcional)`, cfg.whats,
+    `Oi! Aqui é a ${pnome(aluAtual)} 😊\nAcabei de mandar um pedido pelo app: ${descPedido(dados)}.\nObrigada!`);
+}
+
 function boot(){
   if (!(window.supabase && window.supabase.createClient)) { telaAuth('entrar', '<div class="alert bad">Não consegui carregar o sistema. Verifique a internet e recarregue a página.</div>'); return; }
+  const tk = new URLSearchParams(location.search).get('a');
+  if (tk) { // aberto pela aluna: sem login, sem guardar sessão
+    SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: false}});
+    return iniciarPortal(tk);
+  }
   SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}});
   SB.auth.onAuthStateChange((ev) => { if (ev === 'PASSWORD_RECOVERY') novaSenha(); });
   iniciarSessao();
