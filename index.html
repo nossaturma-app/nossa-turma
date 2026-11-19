@@ -314,6 +314,12 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
     <p class="hint">Receba um aviso quando uma aluna mandar pedido, mesmo com o app fechado. Ative em cada aparelho que quiser usar.</p>
     <div id="pushInfo" class="hint" style="margin:0 0 10px"></div>
     <div class="row"><button class="btn primary small" id="pushAtivar">Ativar neste aparelho</button><button class="btn small" id="pushTeste" style="display:none">Enviar teste</button><button class="link" id="pushDesativar" style="display:none">Desativar</button></div>
+    <div id="avAlunas" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+      <h2 style="font-size:15px">📲 Avisos para as alunas</h2>
+      <p class="hint" style="margin:0 0 8px">A aluna ativa no link dela. Ela recebe: <b>pedido confirmado</b>, <b>mensalidade vencendo</b> e <b>recados</b> do estúdio. <span id="avCont"></span></p>
+      <label class="check"><input type="checkbox" id="cfAvisoVenc"> Avisar no dia anterior ao vencimento (às 9h, só quem não pagou)</label>
+      <button class="btn small block" id="avRecado" style="margin-top:10px">📣 Enviar recado para todas as alunas</button>
+    </div>
   </div>
   <div class="card">
     <h2>Horários das aulas</h2>
@@ -445,7 +451,7 @@ const store = {
   get(k, d){ try { const v = localStorage.getItem('vgp_'+k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
   set(k, v){ try { localStorage.setItem('vgp_'+k, JSON.stringify(v)); return true; } catch(e){ return false; } }
 };
-const CFG0 = () => ({estudio:'Meu estúdio', admin:'', pix:'', vagas:6, primeira:'cheio', modalidade:'Pilates', listaEspera:false, espera:[], alertaFaltas:3, ficha:null, dias:[1,2,3,4,5],
+const CFG0 = () => ({estudio:'Meu estúdio', admin:'', pix:'', vagas:6, primeira:'cheio', modalidade:'Pilates', listaEspera:false, espera:[], alertaFaltas:3, ficha:null, avisoVenc:true, dias:[1,2,3,4,5],
   horas:['07:00','08:00','09:00','10:00','14:00','15:00','16:00','17:00','18:00','19:00'],
   planos:[{id:'p1', n:'1x por semana', aulas:1, valor:110},{id:'p2', n:'2x por semana', aulas:2, valor:190},{id:'p3', n:'3x por semana', aulas:3, valor:280}],
   regra:{max:2, ant:4, manha:'12:00', vesp:'18:00', admIni:'07:00', admFim:'19:00'}, demo:false});
@@ -1008,6 +1014,64 @@ function renderFichaPortal(){
   };
 }
 
+// ================= AVISOS NO CELULAR PARA AS ALUNAS =================
+let pushAlunas = new Set(); // alunos que ativaram os avisos em pelo menos um celular
+async function carregarPushAlunas(){
+  if (!SB || !estudioId || MODO_ALUNO) return;
+  try { const r = await SB.from('push_alunos').select('aluno_id').eq('estudio_id', estudioId); if (!r.error && Array.isArray(r.data)) pushAlunas = new Set(r.data.map(x => x.aluno_id)); } catch(e){}
+}
+function renderAvisosAlunas(){
+  $('avAlunas').style.display = perm.ajustes ? '' : 'none';
+  $('cfAvisoVenc').checked = cfg.avisoVenc !== false;
+  carregarPushAlunas().then(() => { $('avCont').innerHTML = pushAlunas.size ? `<b>${pushAlunas.size}</b> aluno${pushAlunas.size > 1 ? 's' : ''} com avisos ativos.` : 'Nenhum aluno ativou ainda.'; });
+}
+$('cfAvisoVenc').onchange = e => { cfg.avisoVenc = e.target.checked; salvar(); toast(e.target.checked ? 'Lembrete de vencimento ligado' : 'Lembrete de vencimento desligado'); };
+$('avRecado').onclick = () => {
+  const c = $('acCorpo');
+  c.innerHTML = `<h2>📣 Recado para as alunas</h2><p class="hint">Chega como notificação no celular de quem ativou os avisos. Para as outras, mande também pelo WhatsApp.</p>
+    <textarea id="rcTexto" rows="4" maxlength="300" placeholder="Ex.: Amanhã (feriado) o estúdio estará fechado. Bom descanso! 💕"></textarea>
+    <p class="hint" style="margin:4px 0 10px;text-align:right"><span id="rcN">0</span>/300</p>
+    <div style="display:grid;gap:8px"><button class="btn primary" id="rcOk">Enviar</button><button class="btn" id="acFechar">Cancelar</button></div>`;
+  $('rcTexto').oninput = e => $('rcN').textContent = e.target.value.length;
+  $('acFechar').onclick = () => fechar('mAcao');
+  $('rcOk').onclick = async () => { const t = $('rcTexto').value.trim(); if (t.length < 3) return toast('Escreva o recado');
+    $('rcOk').disabled = true; let r; try { r = (await SB.rpc('enviar_recado_alunas', {p_texto: t})) || {}; } catch(e){ r = {error: e}; }
+    if (r.error) { $('rcOk').disabled = false; return toast('Não consegui enviar: ' + traduzErro(r.error.message)); }
+    fechar('mAcao'); toast(r.data ? `📣 Recado enviado para ${r.data} celular${r.data > 1 ? 'es' : ''}` : 'Ninguém ativou os avisos ainda'); };
+  $('mAcao').classList.add('on');
+};
+// ----- no link da aluna -----
+async function ativarAvisosAluna(){
+  try {
+    const reg = await registrarCarteiro(); if (!reg) return toast('Este celular não aceita avisos');
+    await navigator.serviceWorker.ready;
+    if ((await Notification.requestPermission()) !== 'granted') { extrasPortal(); return toast('Permissão não concedida'); }
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u8(VAPID_PUBLICA)});
+    const {error} = (await SB.rpc('aluno_push_inscrever', {p_token: MODO_ALUNO, p_dados: sub.toJSON()})) || {};
+    if (error) throw error;
+    try { localStorage.setItem('nt_push_aluno', sub.endpoint); } catch(e){}
+    toast('🔔 Avisos ativados!'); extrasPortal();
+  } catch(e){ toast('Não consegui ativar: ' + traduzErro(e && e.message)); extrasPortal(); }
+}
+async function desativarAvisosAluna(){
+  try { const sub = await inscricaoAtual(); if (sub) { await SB.rpc('aluno_push_remover', {p_token: MODO_ALUNO, p_endpoint: sub.endpoint}); } localStorage.removeItem('nt_push_aluno'); } catch(e){}
+  toast('Avisos desativados neste celular'); extrasPortal();
+}
+async function extrasPortal(){ // cartões que aparecem embaixo da área da aluna (link pessoal)
+  if (!MODO_ALUNO || fichaPendentePortal() || !aluAtual) return;
+  let box = $('aluExtras'); if (!box) { box = document.createElement('div'); box.id = 'aluExtras'; $('aluMain').appendChild(box); }
+  let ativo = false, sub = null; try { sub = await inscricaoAtual(); ativo = !!sub && localStorage.getItem('nt_push_aluno') === sub.endpoint; } catch(e){}
+  const neg = 'Notification' in window && Notification.permission === 'denied';
+  box.innerHTML = `<div class="card" style="text-align:center"><h2 style="font-size:15px">🔔 Avisos no celular</h2>` + (!temPush()
+      ? `<p class="hint" style="margin:0">${ehIOS() && !instalado() ? 'No iPhone: toque em <b>Compartilhar</b> › <b>Adicionar à Tela de Início</b>, abra pelo ícone e volte aqui para ativar.' : 'Este navegador não aceita avisos. No Android, use o Chrome.'}</p>`
+      : ativo ? `<p class="hint" style="margin:0 0 6px">✅ <b>Ativados neste celular.</b> Você recebe: pedido confirmado, mensalidade vencendo e recados do estúdio.</p><button class="link" id="avDesl" style="font-size:12px">Desativar</button>`
+      : neg ? `<p class="hint" style="margin:0">🚫 Os avisos estão bloqueados para este site. Libere nas configurações do navegador e volte aqui.</p>`
+      : `<p class="hint" style="margin:0 0 8px">Receba no celular quando o estúdio confirmar seu pedido, um dia antes do vencimento e os recados do estúdio.</p><button class="btn primary small" id="avAtv">Ativar avisos</button>`) + `</div>`
+    + (aceiteAtual ? `<div style="text-align:center;margin:4px 0 14px"><button class="btn small" id="aluFichaPdf">📄 Minha ficha de matrícula (PDF)</button></div>` : '');
+  if ($('avAtv')) $('avAtv').onclick = ativarAvisosAluna; if ($('avDesl')) $('avDesl').onclick = desativarAvisosAluna;
+  if ($('aluFichaPdf')) $('aluFichaPdf').onclick = () => pdfFicha(aluAtual, aceiteAtual);
+}
+
 // ================= RELATÓRIO DO MÊS =================
 let rRef = mesRef(hoje());
 const barra = (rot, v, max, txt) => `<div class="rlin"><span>${rot}</span><div class="rbar"><i style="width:${max ? Math.round(v / max * 100) : 0}%"></i></div><span class="rnum">${txt != null ? txt : v}</span></div>`;
@@ -1383,7 +1447,7 @@ function abrirAluno(a){
       ${!perm.financeiro ? '' : `<h2 style="margin-top:12px">Pagamentos</h2>`}${!perm.financeiro ? '' : ult.length ? ult.map(p => `<div class="item" style="padding:7px 0"><span class="sub">${nomeMes(p.ref)}</span><span class="sub pago">${brl(p.valor)} · ${fmtD(p.pagoEm)} · ${p.forma}</span></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>'}
       ${a.tel ? `<a class="btn wa small" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(a.tel, `Oi, ${pnome(a)}! 😊`)}">Abrir conversa no WhatsApp</a>` : ''}
       <div id="maFichaBox">${blocoFicha(a)}</div>
-      <h2 style="margin-top:14px">📲 Acesso da aluna</h2><p class="hint" style="margin:0 0 6px">Link pessoal para ela ver os horários e pedir reposição. Sem senha.</p>
+      <h2 style="margin-top:14px">📲 Acesso da aluna</h2><p class="hint" style="margin:0 0 6px">Link pessoal para ela ver os horários e pedir reposição. Sem senha.${pushAlunas.has(a.id) ? ' <span class="tag ok">🔔 avisos ativos</span>' : ''}</p>
       <div class="row"><button class="btn small primary" id="maAcesso">Enviar acesso</button><button class="btn small" id="maAcessoNovo">Gerar novo link</button></div>
       <button class="btn ghost small" id="maExcl" style="margin-top:8px">Excluir aluno</button></div>`;
     $('maAcesso').onclick = () => enviarAcesso(a, false);
@@ -1676,6 +1740,7 @@ $('aluSair').onclick = () => { $('alu').style.display = 'none'; document.body.st
 document.querySelectorAll('#aluNav button').forEach(b => b.onclick = () => { aluTab = b.dataset.t; renderAlu(); });
 function renderAlu(){
   if (fichaPendentePortal()) return renderFichaPortal();
+  setTimeout(extrasPortal, 0);
   const m = $('aluMain');
   $('aluNav').style.display = aluAtual ? '' : 'none';
   document.querySelectorAll('#aluNav button').forEach(b => b.classList.toggle('on', b.dataset.t === aluTab));
@@ -1811,7 +1876,7 @@ function mostraFila(){
 
 // ================= AJUSTES =================
 function renderAjustes(){
-  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfWhats').value = cfg.whats || ''; $('cfModal').value = cfg.modalidade || ''; $('cfEsp').checked = !!cfg.listaEspera; aplicarPermissoes(); renderEquipe(); renderFichaAjustes(); $('cfAlFal').value = String(cfg.alertaFaltas ?? 3); renderPush(); $('cfVagas').value = cfg.vagas;
+  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfWhats').value = cfg.whats || ''; $('cfModal').value = cfg.modalidade || ''; $('cfEsp').checked = !!cfg.listaEspera; aplicarPermissoes(); renderEquipe(); renderFichaAjustes(); renderAvisosAlunas(); $('cfAlFal').value = String(cfg.alertaFaltas ?? 3); renderPush(); $('cfVagas').value = cfg.vagas;
   $('cfHoras').innerHTML = cfg.horas.slice().sort().map(h => `<button class="chip on" data-h="${h}">${hCurta(h)} ✕</button>`).join('');
   $('cfHoras').querySelectorAll('[data-h]').forEach(b => b.onclick = () => {
     const h = b.dataset.h, usam = alunos.filter(a => a.ativo && a.slots.some(s => s.endsWith('-' + h))).length;
@@ -2225,7 +2290,7 @@ function entrouNoApp(){
   registrarCarteiro();
   clearInterval(puxarTimer); puxarTimer = setInterval(() => { if (document.visibilityState === 'visible') puxar(); }, 30000);
   aplicarPermissoes(); if (perm.documentos) setTimeout(subirDocsPendentes, 3000);
-  carregarAceites().then(() => { if (document.querySelector('nav button.on[data-v="alunos"]')) renderAlunos(); });
+  carregarAceites().then(() => { if (document.querySelector('nav button.on[data-v="alunos"]')) renderAlunos(); }); carregarPushAlunas();
   $('auth').style.display = 'none';
   $('hNome').textContent = cfg.estudio;
   if ($('contaInfo')) $('contaInfo').innerHTML = `Entrou como <b>${esc(usuario ? usuario.email : '')}</b> · estúdio <b>${esc(cfg.estudio)}</b>`;
@@ -2315,10 +2380,10 @@ async function carregarPortal(){
   aluAtual = eu; aceiteAtual = data.aceite || null;
   $('aluEst').textContent = cfg.estudio; document.title = cfg.estudio + ' · Área do aluno';
   if (cfg.logo) { $('aluLogo').src = cfg.logo; $('aluLogo').style.display = ''; } else $('aluLogo').style.display = 'none';
-  renderAlu(); botaoFichaPortal(); return true;
+  renderAlu(); return true;
 }
 async function iniciarPortal(token){
-  MODO_ALUNO = token; try { localStorage.setItem('nt_aluno', token); } catch(e){}
+  MODO_ALUNO = token; try { localStorage.setItem('nt_aluno', token); } catch(e){} registrarCarteiro();
   $('auth').style.display = 'none';
   $('alu').style.display = ''; document.body.style.overflow = 'hidden';
   document.querySelector('.alu-demo').style.display = 'none';
