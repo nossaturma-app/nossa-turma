@@ -260,10 +260,16 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
 
 <!-- ================= AJUSTES ================= -->
 <section id="ajustes" class="view">
-  <div class="card">
+  <div class="card" data-sempre>
     <h2>👤 Sua conta</h2>
     <p class="hint" id="contaInfo" style="margin:0 0 10px"></p>
     <button class="btn block" id="btnSair">Sair da conta</button>
+  </div>
+  <div class="card" id="cfEquipe" style="display:none">
+    <h2>👥 Equipe</h2>
+    <p class="hint">Convide quem trabalha com você. Cada pessoa entra com o próprio e-mail e senha, e você escolhe o que ela pode ver.</p>
+    <div id="eqLista"></div>
+    <button class="btn primary block" id="eqConvidar" style="margin-top:8px">+ Convidar pessoa</button>
   </div>
   <div class="card">
     <h2>Estúdio</h2>
@@ -290,7 +296,7 @@ input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--ac
     <select id="cfAlFal"><option value="2">2 aulas</option><option value="3">3 aulas</option><option value="4">4 aulas</option><option value="0">Não avisar</option></select>
     <p class="hint" style="margin:6px 0 0">Conta pela <b>chamada</b> (Agenda › Dia › ✓ Chamada).</p>
   </div>
-  <div class="card">
+  <div class="card" data-sempre>
     <h2>🔔 Notificações no celular</h2>
     <p class="hint">Receba um aviso quando uma aluna mandar pedido, mesmo com o app fechado. Ative em cada aparelho que quiser usar.</p>
     <div id="pushInfo" class="hint" style="margin:0 0 10px"></div>
@@ -570,6 +576,7 @@ function exemploPrim(k){ // exemplo com R$ 190, começa dia 17 e vence dia 10 (2
     : `Ex.: começa 17/11, vence dia 10 → paga ${brl(r2(190 + pv))} em 10/12.`;
 }
 function statusMens(a, ref){
+  if (!perm.financeiro) return null;
   const base = ref.slice(0, 7);
   if (a.fim && base > a.fim.slice(0, 7)) return null;
   if (!a.venc) return null;
@@ -781,6 +788,52 @@ function renderAvisos2(){
   $('btnEspera').style.display = cfg.listaEspera ? '' : 'none'; $('btnEspera').textContent = `🪑 Lista de espera${(cfg.espera || []).length ? ' (' + cfg.espera.length + ')' : ''}`;
 }
 
+// ================= EQUIPE E PERMISSÕES =================
+const PERMS = [['financeiro', '💳 Financeiro', 'mensalidades, valores e pagamentos'], ['documentos', '📎 Documentos', 'laudos e atestados'], ['ajustes', '⚙️ Ajustes', 'planos, horários e regras']];
+function aplicarPermissoes(){
+  document.querySelectorAll('nav button[data-v="financeiro"]').forEach(b => b.style.display = perm.financeiro ? '' : 'none');
+  document.querySelectorAll('.kpi[data-ir="financeiro"]').forEach(k => k.style.display = perm.financeiro ? '' : 'none');
+  document.querySelectorAll('#alFiltro [data-f="atraso"], #alFiltro [data-f="esp"]').forEach(c => c.style.display = perm.financeiro ? '' : 'none');
+  ['maValor', 'maVenc', 'maPrim'].forEach(id => { const el = $(id) && $(id).closest('.grid > div'); if (el) el.style.display = perm.financeiro ? '' : 'none'; });
+  if ($('fRel')) $('fRel').style.display = perm.financeiro ? '' : 'none';
+  document.querySelectorAll('#ajustes > .card').forEach(c => { if (c.id === 'cfEquipe') return; c.style.display = perm.ajustes || c.hasAttribute('data-sempre') ? '' : 'none'; });
+  if ($('cfEquipe')) $('cfEquipe').style.display = perm.dona ? '' : 'none';
+}
+async function renderEquipe(){
+  if (!perm.dona || !SB) return;
+  const box = $('eqLista'); box.innerHTML = '<p class="hint">Carregando…</p>';
+  const {data, error} = await SB.rpc('equipe_listar');
+  if (error) return box.innerHTML = `<p class="hint">Não consegui carregar a equipe${/function|does not exist|schema/i.test(error.message) ? ' (falta rodar o código 7 no Supabase)' : ''}.</p>`;
+  box.innerHTML = (Array.isArray(data) ? data : []).map(m => `<div class="item" style="align-items:flex-start;flex-wrap:wrap"><div style="min-width:0;flex:1"><div class="nm" style="overflow:hidden;text-overflow:ellipsis">${esc(m.email)}${m.eu ? ' (você)' : ''}</div>
+      <div class="sub">${m.papel === 'dona' ? '<span class="tag ok">dona · vê tudo</span>' : 'equipe · desde ' + fmtD(m.desde.slice(0, 10))}</div>
+      ${m.papel === 'equipe' ? `<div style="display:grid;gap:2px;margin-top:6px">${PERMS.map(([k, n]) => `<label class="check" style="font-size:13px"><input type="checkbox" data-u="${m.user_id}" data-p="${k}" ${m.permissoes && m.permissoes[k] ? 'checked' : ''}> ${n}</label>`).join('')}</div>` : ''}</div>
+      ${m.papel === 'equipe' ? `<button class="link" data-rem="${m.user_id}" style="font-size:12px">Remover</button>` : ''}</div>`).join('') || '<p class="hint">Só você por enquanto.</p>';
+  box.querySelectorAll('input[data-u]').forEach(i => i.onchange = async () => {
+    const u = i.dataset.u, p = {}; box.querySelectorAll(`input[data-u="${u}"]`).forEach(x => p[x.dataset.p] = x.checked);
+    const {error} = await SB.rpc('equipe_atualizar', {p_user: u, p_permissoes: p});
+    toast(error ? 'Não consegui salvar: ' + traduzErro(error.message) : 'Permissão atualizada ✔ (vale quando a pessoa abrir o app de novo)'); });
+  box.querySelectorAll('[data-rem]').forEach(b => { let conf = false; b.onclick = async () => { if (!conf) { conf = true; b.textContent = 'Tocar de novo para remover'; return; }
+    const {error} = await SB.rpc('equipe_remover', {p_user: b.dataset.rem}); toast(error ? 'Não consegui remover' : 'Pessoa removida da equipe'); renderEquipe(); }; });
+}
+function abrirConvite(){
+  const c = $('acCorpo');
+  c.innerHTML = `<h2>+ Convidar para a equipe</h2><p class="hint">Escolha o que a pessoa vai poder ver. Agenda, alunos, chamada e reposições ela sempre vê. Dá para mudar depois.</p>
+    <div style="display:grid;gap:8px;margin:10px 0">${PERMS.map(([k, n, d]) => `<label class="check" style="align-items:flex-start"><input type="checkbox" id="cv_${k}" style="margin-top:3px"><span><b>${n}</b><br><span class="hint" style="margin:0">${d}</span></span></label>`).join('')}</div>
+    <div style="display:grid;gap:8px"><button class="btn primary" id="cvOk">Gerar link de convite</button><button class="btn" id="acFechar">Cancelar</button></div>`;
+  $('acFechar').onclick = () => fechar('mAcao');
+  $('cvOk').onclick = async () => {
+    const p = {}; PERMS.forEach(([k]) => p[k] = $('cv_' + k).checked);
+    $('cvOk').disabled = true;
+    const {data, error} = await SB.rpc('criar_convite', {p_permissoes: p});
+    if (error) { $('cvOk').disabled = false; return toast('Não consegui criar o convite: ' + traduzErro(error.message)); }
+    const link = location.origin + location.pathname + '?convite=' + encodeURIComponent(data);
+    fechar('mAcao');
+    abrirMsg('Convite pronto ✔', 'Vale por 7 dias e para uma pessoa só. Envie pelo WhatsApp.', '', `Oi! 😊 Você foi convidada para a equipe do *${cfg.estudio}* no app Nossa Turma.\nToque no link, crie sua conta com seu e-mail e senha, e pronto:\n${link}`);
+  };
+  $('mAcao').classList.add('on');
+}
+$('eqConvidar').onclick = abrirConvite;
+
 // ================= RELATÓRIO DO MÊS =================
 let rRef = mesRef(hoje());
 const barra = (rot, v, max, txt) => `<div class="rlin"><span>${rot}</span><div class="rbar"><i style="width:${max ? Math.round(v / max * 100) : 0}%"></i></div><span class="rnum">${txt != null ? txt : v}</span></div>`;
@@ -796,7 +849,7 @@ function renderRelatorio(){
   const L = linhasFin(ref), prev = L.reduce((t, x) => t + x.s.valor, 0), pagas = L.filter(x => x.s.st === 'pago'), rec = pagas.reduce((t, x) => t + x.s.p.valor, 0), atr = L.filter(x => x.s.st === 'atraso').reduce((t, x) => t + x.s.valor, 0);
   const formas = {}; pags.filter(p => (p.pagoEm || '').slice(0, 7) === ref).forEach(p => formas[p.forma || 'Outro'] = (formas[p.forma || 'Outro'] || 0) + p.valor);
   const maxF = Math.max(0, ...Object.values(formas));
-  h += `<div class="card"><h2>💳 Financeiro</h2><div class="rk"><div><b>${brl(rec).replace(',00', '')}</b><small>recebido</small></div><div><b>${prev ? Math.round(rec / prev * 100) : 0}%</b><small>do previsto (${brl(prev).replace(',00', '')})</small></div><div><b style="color:${atr ? 'var(--bad)' : 'inherit'}">${prev ? Math.round(atr / prev * 100) : 0}%</b><small>inadimplência</small></div></div>`
+  if (perm.financeiro) h += `<div class="card"><h2>💳 Financeiro</h2><div class="rk"><div><b>${brl(rec).replace(',00', '')}</b><small>recebido</small></div><div><b>${prev ? Math.round(rec / prev * 100) : 0}%</b><small>do previsto (${brl(prev).replace(',00', '')})</small></div><div><b style="color:${atr ? 'var(--bad)' : 'inherit'}">${prev ? Math.round(atr / prev * 100) : 0}%</b><small>inadimplência</small></div></div>`
     + `<p class="hint" style="margin:6px 0">Ticket médio: <b>${pagas.length ? brl(rec / pagas.length) : '—'}</b> · ${pagas.length} de ${L.length} mensalidades pagas${atr ? ` · <b style="color:var(--bad)">${brl(atr)} em atraso</b>` : ''}</p>`
     + (maxF ? Object.entries(formas).sort((x, y) => y[1] - x[1]).map(([f, v]) => barra(esc(f), v, maxF, brl(v).replace(',00', ''))).join('') : '') + '</div>';
   // frequência
@@ -1119,8 +1172,8 @@ function renderAlunos(){
   $('alLista').innerHTML = lista.length ? '' : '<div class="empty">Ninguém por aqui.</div>';
   lista.forEach(a => {
     const pend = pendencias(a), cr = creditos(a.id).length, d = document.createElement('div'); d.className = 'item'; d.style.cursor = 'pointer';
-    d.innerHTML = `<div><div class="nm">${esc(a.nome)}</div><div class="sub">${plano(a.plano).n} · ${brl(valorAluno(a))} · ${slotsTxt(a) || 'sem horário'}</div>
-      <div style="margin-top:3px">${anivNoMes(a, mesRef(hoje())) ? `<span class="tag warn">🎂 ${fmtD(a.nasc.replace(/^\d{4}/, hoje().getFullYear()))}</span> ` : ''}${!a.venc ? '' : pend.some(p => p.st === 'atraso') ? '<span class="tag bad">Atrasada</span> ' : pend.length ? '<span class="tag warn">Vence hoje</span> ' : '<span class="tag ok">Em dia</span> '}${cr ? `<span class="tag blue">${cr} reposição</span> ` : ''}${especial(a) ? '<span class="tag mut">valor especial</span> ' : ''}${a.conferir ? '<span class="tag warn">completar</span> ' : ''}${(a.docs || []).length ? `<span class="tag blue" style="font-size:13px">📎 ${a.docs.length} ${a.docs.length > 1 ? 'documentos' : 'documento'}</span> ` : ''}${!a.conferir && dias(a.inicio) > -31 ? `<span class="tag blue">novo · desde ${fmtD(a.inicio)}</span> ` : ''}${a.fim ? `<span class="tag mut">${a.fim < toISO(hoje()) ? 'saiu' : 'sai'} em ${fmtD(a.fim)}</span> ` : ''}${a.duv ? '<span class="tag warn">conferir nome</span>' : ''}</div></div><span class="sub">›</span>`;
+    d.innerHTML = `<div><div class="nm">${esc(a.nome)}</div><div class="sub">${plano(a.plano).n}${perm.financeiro ? ' · ' + brl(valorAluno(a)) : ''} · ${slotsTxt(a) || 'sem horário'}</div>
+      <div style="margin-top:3px">${anivNoMes(a, mesRef(hoje())) ? `<span class="tag warn">🎂 ${fmtD(a.nasc.replace(/^\d{4}/, hoje().getFullYear()))}</span> ` : ''}${!a.venc || !perm.financeiro ? '' : pend.some(p => p.st === 'atraso') ? '<span class="tag bad">Atrasada</span> ' : pend.length ? '<span class="tag warn">Vence hoje</span> ' : '<span class="tag ok">Em dia</span> '}${cr ? `<span class="tag blue">${cr} reposição</span> ` : ''}${especial(a) ? '<span class="tag mut">valor especial</span> ' : ''}${a.conferir ? '<span class="tag warn">completar</span> ' : ''}${perm.documentos && (a.docs || []).length ? `<span class="tag blue" style="font-size:13px">📎 ${a.docs.length} ${a.docs.length > 1 ? 'documentos' : 'documento'}</span> ` : ''}${!a.conferir && dias(a.inicio) > -31 ? `<span class="tag blue">novo · desde ${fmtD(a.inicio)}</span> ` : ''}${a.fim ? `<span class="tag mut">${a.fim < toISO(hoje()) ? 'saiu' : 'sai'} em ${fmtD(a.fim)}</span> ` : ''}${a.duv ? '<span class="tag warn">conferir nome</span>' : ''}</div></div><span class="sub">›</span>`;
     d.onclick = () => abrirAluno(a); $('alLista').appendChild(d);
   });
 }
@@ -1152,7 +1205,7 @@ function abrirAluno(a){
       <h2>✓ Frequência (últimos 60 dias)</h2><p class="hint" style="margin:0 0 10px">${fq.tot ? `Veio em <b>${fq.veio} de ${fq.tot}</b> aulas (<b>${fq.pct}%</b>)${fq.avisou ? ` · ${fq.avisou} falta${fq.avisou > 1 ? 's' : ''} avisada${fq.avisou > 1 ? 's' : ''}` : ''}${fq.semAviso ? ` · <b style="color:var(--bad)">${fq.semAviso} sem aviso</b>` : ''}` : 'Sem chamadas registradas ainda.'}</p>
       <h2>Reposições</h2><div class="hint" style="margin:0">Usadas em ${nomeMes(ref).split(' ')[0].toLowerCase()}: <b>${usadas} de ${cfg.regra.max}</b>${cr.length ? ` · <b>${cr.length}</b> a agendar` : ''}</div>
       ${fl.map(e => { const r = e.repoId && eventos.find(x => x.id === e.repoId); return `<div class="parc item" style="padding:7px 0"><span class="sub">Faltou ${fmtD(e.data)} ${hCurta(e.h)}</span><span class="sub">${!e.direito ? '<span class="tag mut">sem direito</span>' : r ? '↺ ' + fmtD(r.data) + ' ' + hCurta(r.h) : expirou(e) ? '<span class="tag mut">expirou</span>' : '<span class="tag blue">a agendar até ' + fmtD(fimDoMes(e.data)) + '</span>'}</span></div>`; }).join('')}
-      <h2 style="margin-top:12px">Pagamentos</h2>${ult.length ? ult.map(p => `<div class="item" style="padding:7px 0"><span class="sub">${nomeMes(p.ref)}</span><span class="sub pago">${brl(p.valor)} · ${fmtD(p.pagoEm)} · ${p.forma}</span></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>'}
+      ${!perm.financeiro ? '' : `<h2 style="margin-top:12px">Pagamentos</h2>`}${!perm.financeiro ? '' : ult.length ? ult.map(p => `<div class="item" style="padding:7px 0"><span class="sub">${nomeMes(p.ref)}</span><span class="sub pago">${brl(p.valor)} · ${fmtD(p.pagoEm)} · ${p.forma}</span></div>`).join('') : '<div class="hint">Nenhum pagamento registrado.</div>'}
       ${a.tel ? `<a class="btn wa small" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(a.tel, `Oi, ${pnome(a)}! 😊`)}">Abrir conversa no WhatsApp</a>` : ''}
       <h2 style="margin-top:14px">📲 Acesso da aluna</h2><p class="hint" style="margin:0 0 6px">Link pessoal para ela ver os horários e pedir reposição. Sem senha.</p>
       <div class="row"><button class="btn small primary" id="maAcesso">Enviar acesso</button><button class="btn small" id="maAcessoNovo">Gerar novo link</button></div>
@@ -1368,19 +1421,36 @@ function comprimirImagem(file){ return new Promise((ok, erro) => { const img = n
   img.onload = () => { const k = Math.min(1, 1800 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
     const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(b => b ? ok(b) : erro(), 'image/jpeg', .82); };
   img.onerror = erro; img.src = url; }); }
+// ----- documentos na nuvem (gaveta privada "documentos" no Supabase) -----
+const extDoc = d => d.tipo === 'pdf' ? 'pdf' : 'jpg';
+async function subirDoc(a, d, blob){
+  if (!SB || !estudioId || !perm.documentos) return false;
+  const path = `${estudioId}/${a.id}/${d.id}.${extDoc(d)}`;
+  try { const {error} = await SB.storage.from('documentos').upload(path, blob, {contentType: d.tipo === 'pdf' ? 'application/pdf' : 'image/jpeg', upsert: true});
+    if (error) return false; d.path = path; return true; } catch(e){ return false; }
+}
+let subindoDocs = false;
+async function subirDocsPendentes(){ // laudos que ainda estão só neste aparelho
+  if (subindoDocs || !perm.documentos || !SB) return; subindoDocs = true; let n = 0;
+  for (const a of alunos) for (const d of (a.docs || [])) { if (d.path) continue; let blob = null; try { blob = await DB.get(d.id); } catch(e){} if (blob && await subirDoc(a, d, blob)) n++; }
+  subindoDocs = false; if (n) { salvar(); toast(`☁️ ${n} documento${n > 1 ? 's' : ''} enviado${n > 1 ? 's' : ''} para a nuvem`); }
+}
 function renderDocs(a){
   const box = $('maDocs');
+  if (!perm.documentos) { box.innerHTML = ''; return; }
   if (!a) { box.innerHTML = `<div class="card" style="margin:14px 0 0;background:#faf8f5"><h2>📎 Documentos</h2><p class="hint" style="margin:0">Salve o aluno primeiro para anexar laudos e atestados.</p></div>`; return; }
   const docs = a.docs || [];
   box.innerHTML = `<div class="card" style="margin:14px 0 0;background:#faf8f5"><h2>📎 Documentos (laudos, atestados, exames)</h2>
-    ${docs.length ? docs.map(d => `<div class="item"><div style="min-width:0"><div class="nm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.tipo === 'pdf' ? '📄' : '🖼️'} ${esc(d.desc || d.nome)}</div><div class="sub">${fmtD(d.criadoEm.slice(0, 10))} · ${tamTxt(d.tam)}</div></div>
+    ${docs.length ? docs.map(d => `<div class="item"><div style="min-width:0"><div class="nm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.tipo === 'pdf' ? '📄' : '🖼️'} ${esc(d.desc || d.nome)}</div><div class="sub">${d.path ? '☁️ ' : '📱 '}${fmtD(d.criadoEm.slice(0, 10))} · ${tamTxt(d.tam)}</div></div>
       <div class="row"><button class="btn small" data-ver="${d.id}">Ver</button><button class="btn ghost small" data-del="${d.id}">✕</button></div></div>`).join('') : '<p class="hint" style="margin:0 0 8px">Nenhum documento anexado.</p>'}
     <div class="grid" style="margin-top:8px"><div class="full"><label>Descrição (opcional)</label><input id="docDesc" placeholder="Ex.: Laudo ortopedista — hérnia L4/L5"></div></div>
     <span class="btn primary block" style="position:relative;overflow:hidden;margin-top:8px">+ Anexar foto ou PDF<input type="file" id="docArq" accept="image/*,application/pdf" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0"></span>
-    <p class="hint" style="margin:8px 0 0">🔒 Laudo é dado de saúde (sensível pela LGPD). Fica guardado só neste celular. Peça autorização do aluno para guardar.</p></div>`;
+    <p class="hint" style="margin:8px 0 0">🔒 Laudo é dado de saúde (sensível pela LGPD). Fica numa área <b>privada</b> do estúdio na nuvem: só quem tem permissão de documentos abre. Peça autorização do aluno para guardar.</p></div>`;
   box.querySelectorAll('[data-ver]').forEach(b => b.onclick = () => verDoc(a, docs.find(d => d.id === b.dataset.ver)));
   box.querySelectorAll('[data-del]').forEach(b => { let conf = false; b.onclick = async () => { if (!conf) { conf = true; b.textContent = 'Excluir?'; return; }
-    try { await DB.del(b.dataset.del); } catch(e){} a.docs = docs.filter(d => d.id !== b.dataset.del); salvar(); renderDocs(a); toast('Documento excluído'); }; });
+    const d = docs.find(x => x.id === b.dataset.del);
+    try { await DB.del(b.dataset.del); } catch(e){} if (d && d.path && SB) { try { await SB.storage.from('documentos').remove([d.path]); } catch(e){} }
+    a.docs = docs.filter(x => x.id !== b.dataset.del); salvar(); renderDocs(a); toast('Documento excluído'); }; });
   $('docArq').onchange = async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
@@ -1389,15 +1459,18 @@ function renderDocs(a){
     toast('Anexando…');
     try {
       const blob = pdf ? f : await comprimirImagem(f), id = 'd' + uid();
-      await DB.put(id, blob);
-      (a.docs = a.docs || []).push({id, nome: f.name, desc: $('docDesc').value.trim(), tipo: pdf ? 'pdf' : 'img', tam: blob.size, criadoEm: new Date().toISOString()});
-      salvar(); renderDocs(a); renderAlunos(); toast('Documento anexado ✔');
-    } catch(err){ toast('Não consegui guardar o arquivo neste celular'); }
+      try { await DB.put(id, blob); } catch(e){} // cópia no aparelho (abre mais rápido e funciona sem internet)
+      const d = {id, nome: f.name, desc: $('docDesc').value.trim(), tipo: pdf ? 'pdf' : 'img', tam: blob.size, criadoEm: new Date().toISOString()};
+      const naNuvem = await subirDoc(a, d, blob);
+      (a.docs = a.docs || []).push(d);
+      salvar(); renderDocs(a); renderAlunos(); toast(naNuvem ? 'Documento anexado ✔ ☁️ salvo na nuvem' : 'Documento anexado neste aparelho (vai para a nuvem quando tiver internet)');
+    } catch(err){ toast('Não consegui guardar o arquivo'); }
   };
 }
 async function verDoc(a, d){
   let blob; try { blob = await DB.get(d.id); } catch(e){}
-  if (!blob) return toast('Arquivo não encontrado neste celular (talvez tenha sido anexado em outro aparelho)');
+  if (!blob && d.path && SB) { toast('Abrindo…'); try { const {data, error} = await SB.storage.from('documentos').download(d.path); if (!error && data) { blob = data; DB.put(d.id, blob).catch(() => {}); } } catch(e){} }
+  if (!blob) return toast(d.path ? 'Não consegui abrir agora. Confira a internet.' : 'Arquivo ainda não foi para a nuvem: abra no aparelho onde ele foi anexado');
   const nome = (d.desc || d.nome).replace(/[\\/:*?"<>|]+/g, '') + (d.tipo === 'pdf' ? (/\.pdf$/i.test(d.desc || d.nome) ? '' : '.pdf') : '.jpg');
   const c = $('docCorpo'), url = URL.createObjectURL(blob);
   c.innerHTML = `<div class="row between"><h2 style="margin:0">${esc(d.desc || d.nome)}</h2><button class="btn small" id="docF">Fechar</button></div><p class="hint">${esc(a.nome)} · ${fmtD(d.criadoEm.slice(0, 10))}</p>` +
@@ -1559,7 +1632,7 @@ function mostraFila(){
 
 // ================= AJUSTES =================
 function renderAjustes(){
-  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfWhats').value = cfg.whats || ''; $('cfModal').value = cfg.modalidade || ''; $('cfEsp').checked = !!cfg.listaEspera; $('cfAlFal').value = String(cfg.alertaFaltas ?? 3); renderPush(); $('cfVagas').value = cfg.vagas;
+  $('cfEst').value = cfg.estudio; $('cfAdm').value = cfg.admin; $('cfPix').value = cfg.pix; $('cfWhats').value = cfg.whats || ''; $('cfModal').value = cfg.modalidade || ''; $('cfEsp').checked = !!cfg.listaEspera; aplicarPermissoes(); renderEquipe(); $('cfAlFal').value = String(cfg.alertaFaltas ?? 3); renderPush(); $('cfVagas').value = cfg.vagas;
   $('cfHoras').innerHTML = cfg.horas.slice().sort().map(h => `<button class="chip on" data-h="${h}">${hCurta(h)} ✕</button>`).join('');
   $('cfHoras').querySelectorAll('[data-h]').forEach(b => b.onclick = () => {
     const h = b.dataset.h, usam = alunos.filter(a => a.ativo && a.slots.some(s => s.endsWith('-' + h))).length;
@@ -1700,6 +1773,7 @@ $('bkSalvar').onclick = async () => {
 $('bkArq').onchange = e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const fr = new FileReader();
+  if (!perm.dona) return toast('Só a dona do estúdio pode restaurar uma cópia');
   fr.onload = () => { let d; try { d = JSON.parse(fr.result); } catch(err){ return toast('Arquivo inválido'); }
     if (!d || !['vg-pilates', 'nossa-turma'].includes(d.app) || !Array.isArray(d.alunos)) return toast('Esse arquivo não é uma cópia do estúdio');
     $('bkConf').innerHTML = `<div class="alert warn">Cópia de ${new Date(d.salvoEm).toLocaleDateString('pt-BR')}: ${d.alunos.length} alunos. <b>Substitui os dados atuais.</b><div class="row" style="margin-top:8px"><button class="btn small" id="bkN">Cancelar</button><button class="btn primary small" id="bkS">Restaurar</button></div></div>`;
@@ -1717,6 +1791,47 @@ let SB = null, usuario = null, estudioId = null;
 const CHAVES = ['cfg', 'alunos', 'eventos', 'pags', 'pedidos', 'presencas'];
 const valorDe = k => ({cfg, alunos, eventos, pags, pedidos, presencas})[k];
 let presencasBloq = false; // true se o banco ainda não aceita a chamada (falta rodar o código 6)
+// o que esta pessoa pode ver (a dona pode tudo; a equipe, o que a dona liberar em Ajustes › Equipe)
+let perm = {dona: true, financeiro: true, documentos: true, ajustes: true};
+const chavesSync = () => CHAVES.filter(k => k !== 'pags' || perm.financeiro);
+let visto = {}, vistoTxt = {}; // versão (data/hora exata) de cada "pasta" que este aparelho conhece da nuvem
+const tempo = x => x ? Date.parse(x) : 0;
+function setValor(k, v){
+  if (k === 'cfg') cfg = Object.assign(CFG0(), v || {}); else if (k === 'alunos') alunos = v || []; else if (k === 'eventos') eventos = v || [];
+  else if (k === 'pags') pags = v || []; else if (k === 'pedidos') pedidos = v || []; else if (k === 'presencas') presencas = v || {};
+}
+// ----- juntar alterações de duas pessoas ("mesclagem de 3 vias") -----
+// b = como estava na última vez que este aparelho falou com a nuvem; l = como está aqui; r = como está na nuvem agora
+const igual = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+const listaComIds = v => Array.isArray(v) && v.every(o => o && typeof o === 'object' && 'id' in o);
+function mesclar(b, l, r){
+  if (igual(l, r)) return l;
+  if (igual(l, b)) return r;            // só a nuvem mudou
+  if (igual(r, b)) return l;            // só eu mudei
+  if (Array.isArray(l) && Array.isArray(r) && listaComIds(l) && listaComIds(r) && (b == null || listaComIds(b))) {
+    const B = new Map((b || []).map(o => [o.id, o])), L = new Map(l.map(o => [o.id, o])), R = new Map(r.map(o => [o.id, o]));
+    const ids = [...r.map(o => o.id), ...l.map(o => o.id).filter(id => !R.has(id))], out = [];
+    ids.forEach(id => { const bo = B.get(id), lo = L.get(id), ro = R.get(id);
+      if (lo && ro) out.push(mesclar(bo, lo, ro));
+      else if (lo) { if (!bo || !igual(lo, bo)) out.push(lo); }   // a outra pessoa apagou: só fica se eu mexi nele
+      else if (ro) { if (!bo || !igual(ro, bo)) out.push(ro); }   // eu apaguei: só volta se a outra pessoa mexeu nele
+    });
+    return out;
+  }
+  const obj = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (obj(l) && obj(r)) {
+    const bo = obj(b) ? b : {}, out = {};
+    new Set([...Object.keys(r), ...Object.keys(l)]).forEach(k => {
+      let v;
+      if (k in l && k in r) v = mesclar(bo[k], l[k], r[k]);
+      else if (k in l) v = (k in bo && igual(l[k], bo[k])) ? undefined : l[k];   // apagado na nuvem
+      else v = (k in bo && igual(r[k], bo[k])) ? undefined : r[k];               // apagado aqui
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  return l; // as duas mudaram exatamente a mesma informação: vale a deste aparelho
+}
 let enviado = {}, syncTimer = null, sincronizando = false, pendente = false;
 function setSync(st){ const el = $('sync'); if (!el) return;
   el.textContent = st === 'ok' ? '☁️ salvo' : st === 'salvando' ? '⏳ salvando…' : st === 'offline' ? '📴 sem internet: salvo no aparelho' : st === 'erro' ? '⚠️ não salvou, tentando de novo' : ''; }
@@ -1727,26 +1842,58 @@ async function sincronizar(){
   if (sincronizando) { pendente = true; return; }
   if (!navigator.onLine) { setSync('offline'); return; }
   sincronizando = true;
-  const rows = [];
-  CHAVES.forEach(k => { if (k === 'presencas') return; const j = JSON.stringify(valorDe(k)); if (j !== enviado[k]) rows.push({estudio_id: estudioId, chave: k, valor: JSON.parse(j), atualizado_em: new Date().toISOString()}); });
-  let ok = true;
-  if (rows.length) {
-    const {error} = await SB.from('estudio_dados').upsert(rows);
-    if (error) { ok = false; console.warn(error); }
-    else rows.forEach(r => enviado[r.chave] = JSON.stringify(r.valor));
+  let ok = true, juntou = false;
+  const paraEnviar = () => chavesSync().filter(k => JSON.stringify(valorDe(k)) !== enviado[k] && !(k === 'presencas' && JSON.stringify(presencas) === '{}' && !enviado.presencas));
+  for (const k of paraEnviar()) {
+    // grava com "trava de versão": se alguém da equipe gravou antes, junta as duas versões e tenta de novo
+    for (let tent = 0; tent < 4; tent++) {
+      const valor = JSON.parse(JSON.stringify(valorDe(k)));
+      let r; try { r = await SB.rpc('gravar_pasta', {p_estudio: estudioId, p_chave: k, p_valor: valor, p_esperado: vistoTxt[k] || null}); } catch(e){ r = {error: e}; }
+      r = r || {error: {message: 'function'}};
+      const resp = !r.error && r.data && typeof r.data === 'object' && typeof r.data.ok === 'boolean' ? r.data : null;
+      if ((r.error && /gravar_pasta|function|PGRST202|schema cache/i.test(r.error.message || '')) || (!r.error && !resp)) { // banco ainda sem o código 7: grava do jeito antigo
+        const agora = new Date().toISOString();
+        r = await SB.from('estudio_dados').upsert([{estudio_id: estudioId, chave: k, valor, atualizado_em: agora}]);
+        if (!r.error) { enviado[k] = JSON.stringify(valor); visto[k] = tempo(agora); vistoTxt[k] = agora; }
+      } else if (resp && resp.ok) {
+        enviado[k] = JSON.stringify(valor); vistoTxt[k] = r.data.atualizado_em; visto[k] = tempo(r.data.atualizado_em);
+        if (JSON.stringify(valorDe(k)) !== enviado[k]) continue; // mexeram aqui enquanto gravava: manda de novo
+        break;
+      } else if (resp) { // alguém gravou antes: junta e tenta de novo
+        setValor(k, mesclar(enviado[k] !== undefined ? JSON.parse(enviado[k]) : undefined, valorDe(k), r.data.valor));
+        enviado[k] = JSON.stringify(r.data.valor); vistoTxt[k] = r.data.atualizado_em; visto[k] = tempo(r.data.atualizado_em); juntou = true;
+        continue;
+      }
+      if (r.error) {
+        if (k === 'presencas' && /check|violat/i.test(r.error.message || '')) { if (!presencasBloq) toast('⚠️ A chamada ficou só neste aparelho: falta rodar o código 6 no Supabase'); presencasBloq = true; }
+        else { ok = false; console.warn(k, r.error); }
+      }
+      break;
+    }
   }
-  const jp = JSON.stringify(presencas);
-  if (ok && jp !== enviado.presencas && !(jp === '{}' && !enviado.presencas)) {
-    const {error} = await SB.from('estudio_dados').upsert([{estudio_id: estudioId, chave: 'presencas', valor: presencas, atualizado_em: new Date().toISOString()}]);
-    if (!error) { enviado.presencas = jp; presencasBloq = false; }
-    else if (/check|violat/i.test(error.message || '')) { if (!presencasBloq) toast('⚠️ A chamada ficou só neste aparelho: falta rodar o código 6 no Supabase'); presencasBloq = true; }
-    else { ok = false; console.warn(error); }
-  }
+  if (juntou) { ajustesDeCarga(); versaoDados++; cacheLocal(); if (alEdit) alEdit = aluno(alEdit.id) || alEdit; }
   sincronizando = false;
   if (!ok) { setSync(navigator.onLine ? 'erro' : 'offline'); setTimeout(agendarSync, 15000); return; }
   setSync('ok');
-  if (pendente) { pendente = false; agendarSync(); }
+  if (juntou) { toast('🔄 Juntei suas alterações com as de outra pessoa da equipe'); if (!document.querySelector('.modal.on')) render(); }
+  if (pendente || paraEnviar().length) { pendente = false; agendarSync(); }
 }
+// ----- buscar o que outra pessoa da equipe mudou (a cada 30 s, só se este aparelho não tem nada para enviar) -----
+async function puxar(){
+  if (!SB || !estudioId || MODO_ALUNO || sincronizando || ($('sync') && $('sync').textContent.includes('salvando')) || !navigator.onLine) return;
+  if (document.querySelector('.modal.on')) return; // não atrapalha quem está preenchendo algo
+  const tem = k => enviado[k] !== undefined && JSON.stringify(valorDe(k)) !== enviado[k];
+  if (chavesSync().some(tem)) return;
+  let rows; try { const r = await SB.from('estudio_dados').select('chave, atualizado_em').eq('estudio_id', estudioId); if (r.error) return; rows = r.data || []; } catch(e){ return; }
+  const novas = rows.filter(r => chavesSync().includes(r.chave) && tempo(r.atualizado_em) !== visto[r.chave]).map(r => r.chave);
+  if (!novas.length) return;
+  let dados; try { const r = await SB.from('estudio_dados').select('chave, valor, atualizado_em').eq('estudio_id', estudioId).in('chave', novas); if (r.error) return; dados = r.data || []; } catch(e){ return; }
+  if (document.querySelector('.modal.on') || chavesSync().some(tem)) return; // mudou algo aqui enquanto buscava: fica para a próxima
+  dados.forEach(r => { setValor(r.chave, r.valor); enviado[r.chave] = JSON.stringify(r.valor); visto[r.chave] = tempo(r.atualizado_em); vistoTxt[r.chave] = r.atualizado_em; });
+  ajustesDeCarga(); versaoDados++; cacheLocal(); render();
+}
+let puxarTimer = null;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') puxar(); });
 window.addEventListener('online', agendarSync);
 window.addEventListener('beforeunload', e => { if (syncTimer && Object.keys(enviado).length && CHAVES.some(k => JSON.stringify(valorDe(k)) !== enviado[k])) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -1778,8 +1925,10 @@ function telaAuth(modo, msg){
     $('auSair').onclick = sair;
     return;
   }
+  let conviteTk = null; try { conviteTk = localStorage.getItem('nt_convite'); } catch(e){}
+  if (conviteTk && !modo) modo = 'criar';
   const criar = modo === 'criar';
-  c.innerHTML = `<div class="seg" style="margin-bottom:6px"><button class="${criar ? '' : 'on'}" data-m="entrar">Entrar</button><button class="${criar ? 'on' : ''}" data-m="criar">Criar conta</button></div>
+  c.innerHTML = (conviteTk ? `<div class="alert ok" id="auConv" style="margin:0 0 10px">🎉 Você foi convidada para a equipe. <b>Crie sua conta</b> (ou entre, se já tiver) para aceitar.</div>` : '') + `<div class="seg" style="margin-bottom:6px"><button class="${criar ? '' : 'on'}" data-m="entrar">Entrar</button><button class="${criar ? 'on' : ''}" data-m="criar">Criar conta</button></div>
     <label>E-mail</label><input id="auEmail" type="email" autocomplete="email" inputmode="email">
     <label>Senha</label><input id="auSenha" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" placeholder="${criar ? 'Mínimo 8 caracteres' : ''}">
     <div id="auMsg">${msg || ''}</div>
@@ -1787,6 +1936,9 @@ function telaAuth(modo, msg){
     ${criar ? '' : '<button class="link" id="auEsqueci" style="margin-top:10px">Esqueci minha senha</button>'}`;
   c.querySelectorAll('.seg button').forEach(b => b.onclick = () => telaAuth(b.dataset.m));
   olhoSenha();
+  if (conviteTk && SB) SB.rpc('ver_convite', {p_token: conviteTk}).then(({data}) => { if (!data || !$('auConv')) return;
+    $('auConv').innerHTML = data.valido ? `🎉 Você foi convidada para a equipe do <b>${esc(data.estudio)}</b>. <b>Crie sua conta</b> (ou entre, se já tiver) para aceitar.` : '⚠️ Este convite já foi usado ou venceu. Peça um novo para a dona do estúdio.';
+    if (!data.valido) { $('auConv').className = 'alert warn'; try { localStorage.removeItem('nt_convite'); } catch(e){} } }).catch(() => {});
   const aviso = (t, tipo) => $('auMsg').innerHTML = `<div class="alert ${tipo || 'bad'}">${t}</div>`;
   $('auOk').onclick = async () => {
     const email = $('auEmail').value.trim(), senha = $('auSenha').value;
@@ -1824,26 +1976,40 @@ function traduzErro(m){
 async function iniciarSessao(){
   const {data: {session}} = await SB.auth.getSession();
   usuario = session ? session.user : null;
-  if (!usuario) { let tk = null; try { tk = localStorage.getItem('nt_aluno'); } catch(e){} if (tk) return iniciarPortal(tk); return telaAuth('entrar'); }
+  if (!usuario) { let tk = null, cv = null; try { tk = localStorage.getItem('nt_aluno'); cv = localStorage.getItem('nt_convite'); } catch(e){} if (tk && !cv) return iniciarPortal(tk); return telaAuth(cv ? 'criar' : 'entrar'); }
   // qual estúdio é desta pessoa?
-  const {data: mb, error} = await SB.from('membros').select('estudio_id, papel').eq('user_id', usuario.id).limit(1);
+  // veio de um convite da equipe? aceita antes de procurar o estúdio
+  let conv = null; try { conv = localStorage.getItem('nt_convite'); } catch(e){}
+  if (conv) {
+    const {error: ec} = await SB.rpc('aceitar_convite', {p_token: conv});
+    try { localStorage.removeItem('nt_convite'); } catch(e){}
+    if (ec) { await SB.auth.signOut(); usuario = null; return telaAuth('entrar', `<div class="alert bad">${esc(traduzErro(ec.message))}</div>`); }
+    toast('Bem-vinda à equipe! 🎉');
+  }
+  const {data: mb, error} = await SB.from('membros').select('estudio_id, papel, permissoes').eq('user_id', usuario.id).limit(1);
   let ultimo = null; try { ultimo = localStorage.getItem('nt_est_' + usuario.id); } catch(e){}
   if (error && !ultimo) { return telaAuth('entrar', `<div class="alert bad">Não consegui conectar: ${esc(traduzErro(error.message))}</div>`); }
   if (!error && (!mb || !mb.length)) return telaAuth('estudio');
   estudioId = error ? ultimo : mb[0].estudio_id;
   try { localStorage.setItem('nt_est_' + usuario.id, estudioId); } catch(e){}
+  if (!error) { const m = mb[0], p = m.permissoes || {};
+    perm = m.papel === 'equipe' ? {dona: false, financeiro: !!p.financeiro, documentos: !!p.documentos, ajustes: !!p.ajustes} : {dona: true, financeiro: true, documentos: true, ajustes: true};
+    try { localStorage.setItem('nt_perm_' + usuario.id, JSON.stringify(perm)); } catch(e){}
+  } else { try { perm = JSON.parse(localStorage.getItem('nt_perm_' + usuario.id)) || perm; } catch(e){} }
+  if (!perm.financeiro) pags = [];
   // dados da nuvem; se falhar, usa a cópia do aparelho
-  const {data: rows, error: e2} = await SB.from('estudio_dados').select('chave, valor').eq('estudio_id', estudioId);
+  const {data: rows, error: e2} = await SB.from('estudio_dados').select('chave, valor, atualizado_em').eq('estudio_id', estudioId);
   if (error || e2) {
     let cache = null; try { cache = JSON.parse(localStorage.getItem('nt_cache_' + estudioId)); } catch(e){}
     if (!cache) return telaAuth('entrar', `<div class="alert bad">Sem conexão com a nuvem agora. Tente de novo em instantes.</div>`);
     ({cfg, alunos, eventos, pags, pedidos, presencas} = Object.assign({cfg: CFG0(), alunos: [], eventos: [], pags: [], pedidos: [], presencas: {}}, cache)); cfg = Object.assign(CFG0(), cfg);
     setTimeout(() => setSync('offline'), 0);
   } else {
-    const m = {}; (rows || []).forEach(r => m[r.chave] = r.valor);
+    const m = {}; visto = {}; vistoTxt = {}; (rows || []).forEach(r => { m[r.chave] = r.valor; visto[r.chave] = tempo(r.atualizado_em); vistoTxt[r.chave] = r.atualizado_em; });
     cfg = Object.assign(CFG0(), m.cfg || {}); alunos = m.alunos || []; eventos = m.eventos || []; pags = m.pags || []; pedidos = m.pedidos || []; presencas = m.presencas || {};
     try { const c = JSON.parse(localStorage.getItem('nt_cache_' + estudioId) || 'null'); if (!m.presencas && c && c.presencas && Object.keys(c.presencas).length) presencas = c.presencas; } catch(e){} // chamada guardada só no aparelho
     enviado = {}; CHAVES.forEach(k => { if (k in m) enviado[k] = JSON.stringify(m[k]); });
+    if (!perm.financeiro) pags = [];
     setTimeout(() => setSync('ok'), 0);
   }
   entrouNoApp();
@@ -1877,6 +2043,8 @@ function entrouNoApp(){
   ajustesDeCarga(); cacheLocal();
   clearInterval(pedTimer); pedTimer = setInterval(sincPedidos, 60000); setTimeout(sincPedidos, 500);
   registrarCarteiro();
+  clearInterval(puxarTimer); puxarTimer = setInterval(() => { if (document.visibilityState === 'visible') puxar(); }, 30000);
+  aplicarPermissoes(); if (perm.documentos) setTimeout(subirDocsPendentes, 3000);
   $('auth').style.display = 'none';
   $('hNome').textContent = cfg.estudio;
   if ($('contaInfo')) $('contaInfo').innerHTML = `Entrou como <b>${esc(usuario ? usuario.email : '')}</b> · estúdio <b>${esc(cfg.estudio)}</b>`;
@@ -1989,6 +2157,8 @@ async function enviarPedidoNuvem(dados){
 
 function boot(){
   if (!(window.supabase && window.supabase.createClient)) { telaAuth('entrar', '<div class="alert bad">Não consegui carregar o sistema. Verifique a internet e recarregue a página.</div>'); return; }
+  const cv = new URLSearchParams(location.search).get('convite');
+  if (cv) { try { localStorage.setItem('nt_convite', cv); } catch(e){} history.replaceState(null, '', location.pathname); }
   const tk = new URLSearchParams(location.search).get('a');
   if (tk) { // aberto pela aluna: sem login, sem guardar sessão
     SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: false}});
